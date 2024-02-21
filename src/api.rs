@@ -1,5 +1,9 @@
 use crate::api_commands::ApiCommand;
 use core::panic;
+use std::error::Error;
+use std::{error, io};
+
+use crate::utils::shift_to_16_bit;
 
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
@@ -20,13 +24,11 @@ impl KeyboardApi {
     //     return this.getHID().readP();
     //   }
 
-    pub fn get_protocol_version() {
-        // try {
-        //   const [, hi, lo] = await self.hid_command(APICommand.GET_PROTOCOL_VERSION);
-        //   return shiftTo16Bit([hi, lo]);
-        // } catch (e) {
-        //   return -1;
-        // }
+    pub fn get_protocol_version(&self) -> Option<u16> {
+        match self.hid_command(ApiCommand::GET_PROTOCOL_VERSION, vec![]) {
+            Some(received_bytes) => Some(shift_to_16_bit(received_bytes[1], received_bytes[2])),
+            None => None,
+        }
     }
 
     //   async getKey(layer: Layer, row: Row, col: Column) {
@@ -445,7 +447,7 @@ impl KeyboardApi {
     //     });
     //   }
 
-    pub fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Vec<u8> {
+    pub fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
         let mut command_bytes: Vec<u8> = vec![COMMAND_START, command as u8];
         command_bytes.extend(bytes);
 
@@ -454,10 +456,10 @@ impl KeyboardApi {
             padded_array[idx] = val;
         }
 
-        self.device.write(&padded_array);
+        let _ = self.device.write(&padded_array);
 
         let mut buffer = vec![0; 33];
-        self.device.read(&mut buffer);
+        let _ = self.device.read(&mut buffer);
 
         let buffer_command_bytes = &buffer[0..command_bytes.len() - 1];
 
@@ -466,14 +468,14 @@ impl KeyboardApi {
                 "Command for kb_addr: {:?}, Bad Resp: {:?}",
                 command_bytes, buffer
             );
-            panic!("Receiving incorrect response for command");
+            return None;
         }
 
         println!(
             "Command for kb_addr: {:?}, Correct Resp: {:?}",
             command_bytes, buffer
         );
-        return buffer;
+        Some(buffer)
     }
 
     //   async flushQueue() {

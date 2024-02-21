@@ -34,15 +34,19 @@ fn main() {
             std::process::exit(1);
         });
 
-    let layer = 3;
-    let _ = device.write(&[0, 9, 0, 1, layer]);
+    // let layer = 3;
+    // let _ = device.write(&[0, 9, 0, 1, layer]);
 
     let keyboard_api = api::KeyboardApi::new(device);
-    let response = keyboard_api.hid_command(
-        api_commands::ApiCommand::CUSTOM_MENU_SAVE,
-        vec![0, 1, layer],
-    );
-    print!("Response: {:?}", response);
+
+    // let response = keyboard_api.hid_command(
+    //     api_commands::ApiCommand::CUSTOM_MENU_SAVE,
+    //     vec![0, 1, layer],
+    // );
+    // print!("Response: {:?}", response);
+
+    let protocol_version = keyboard_api.get_protocol_version();
+    println!("Protocol version: {:?}", protocol_version.unwrap());
 
     std::process::exit(0);
 }
