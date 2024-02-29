@@ -1,11 +1,16 @@
 use std::vec;
 
 use crate::api_commands::ApiCommand;
-use crate::utils::{shift_from_16_bit, shift_to_16_bit};
+use crate::utils::{shift_from_16_bit, shift_to_16_bit, shift_buffer_to_16_bit, shift_buffer_from_16_bit};
 
 type Layer = u8;
 type Row = u8;
 type Column = u8;
+
+struct MatrixInfo {
+    rows: u8,
+    cols: u8,
+}
 
 const COMMAND_START: u8 = 0x00;
 const PER_KEY_RGB_CHANNEL_COMMAND: Vec<u8> = vec![0, 1];
@@ -16,9 +21,9 @@ const BACKLIGHT_COLOR_1: u8 = 0x0c;
 const BACKLIGHT_COLOR_2: u8 = 0x0d;
 const BACKLIGHT_CUSTOM_COLOR: u8 = 0x17;
 
-const PROTOCOL_ALPHA: u8 = 7;
-const PROTOCOL_BETA: u8 = 8;
-const PROTOCOL_GAMMA: u8 = 9;
+const PROTOCOL_ALPHA: u16 = 7;
+const PROTOCOL_BETA: u16 = 8;
+const PROTOCOL_GAMMA: u16 = 9;
 
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
@@ -151,6 +156,20 @@ impl KeyboardApi {
     //     return Promise.all(res);
     //   }
 
+    pub fn slow_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
+        let length = matrix_info.rows as usize * matrix_info.cols as usize;
+        let mut res = Vec::new();
+        for i in 0..length {
+            let row = (i as u16 / matrix_info.cols as u16) as u8;
+            let col = (i as u16 % matrix_info.cols as u16) as u8;
+            match self.get_key(layer, row, col) {
+                Some(val) => res.push(val),
+                None => return None,
+            }
+        }
+        Some(res)
+    }
+
     //   async writeRawMatrix(
     //     matrixInfo: MatrixInfo,
     //     keymap: number[][],
@@ -164,6 +183,21 @@ impl KeyboardApi {
     //     }
     //   }
 
+    pub fn write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Option<()> {
+        match self.get_protocol_version() {
+            Some(version) => {
+                if version >= PROTOCOL_BETA {
+                    self.fast_write_raw_matrix(keymap)
+                } else if version == PROTOCOL_ALPHA {
+                    self.slow_write_raw_matrix(matrix_info, keymap)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
+
     //   async slowWriteRawMatrix(
     //     {cols}: MatrixInfo,
     //     keymap: number[][],
@@ -174,6 +208,20 @@ impl KeyboardApi {
     //       }),
     //     );
     //   }
+
+    pub fn slow_write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Option<()> {
+        for (layer_idx, layer) in keymap.iter().enumerate() {
+            for (key_idx, keycode) in layer.iter().enumerate() {
+                let row = (key_idx as u16 / matrix_info.cols as u16) as u8;
+                let col = (key_idx as u16 % matrix_info.cols as u16) as u8;
+                match self.set_key(layer_idx as u8, row, col, *keycode) {
+                    Some(_) => (),
+                    None => return None,
+                }
+            }
+        }
+        Some(())
+    }
 
     //   async fastWriteRawMatrix(keymap: number[][]): Promise<void> {
     //     const data = keymap.flatMap((layer) => layer.map((key) => key));
@@ -188,6 +236,26 @@ impl KeyboardApi {
     //       ]);
     //     }
     //   }
+
+    pub fn fast_write_raw_matrix(&self, keymap: Vec<Vec<u16>>) -> Option<()> {
+        let data: Vec<u16> = keymap.iter().flat_map(|layer| layer.iter().cloned()).collect();
+        let shifted_data = shift_buffer_from_16_bit(&data);
+        let buffer_size = 28;
+        for offset in (0..shifted_data.len()).step_by(buffer_size as usize) {
+            let offset_bytes = shift_from_16_bit(offset as u16);
+            let buffer = shifted_data[offset..offset + buffer_size].to_vec();
+            let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer_size as u8];
+            bytes.extend(buffer);
+            match self.hid_command(
+                ApiCommand::DYNAMIC_KEYMAP_SET_BUFFER,
+                bytes,
+            ) {
+                Some(_) => (),
+                None => return None,
+            }
+        }
+        Some(())
+    }
 
     //   async getKeyboardValue(
     //     command: KeyboardValue,
@@ -205,9 +273,10 @@ impl KeyboardApi {
         parameters: Vec<u8>,
         result_length: usize,
     ) -> Option<Vec<u8>> {
+        let parameters_length = parameters.len();
         match self.hid_command(command, parameters) {
             Some(val) => {
-                Some(val[1 + parameters.len()..1 + parameters.len() + result_length].to_vec())
+                Some(val[1 + parameters_length..1 + parameters_length + result_length].to_vec())
             }
             None => None,
         }
@@ -290,11 +359,12 @@ impl KeyboardApi {
     //   }
 
     pub fn get_custom_menu_value(&self, command_bytes: Vec<u8>) -> Option<Vec<u8>> {
+        let command_length = command_bytes.len();
         match self.hid_command(
             ApiCommand::CUSTOM_MENU_GET_VALUE,
             command_bytes,
         ) {
-            Some(val) => Some(val[0..command_bytes.len()].to_vec()),
+            Some(val) => Some(val[0..command_length].to_vec()),
             None => None,
         }
     }
@@ -673,6 +743,24 @@ impl KeyboardApi {
     //     return allBytes.flatMap((bytes) => bytes.slice(4));
     //   }
 
+    pub fn get_macro_bytes(&self) -> Option<Vec<u8>> {
+        let macro_buffer_size = self.get_macro_buffer_size()?;
+        let size: u8 = 28;  // Can only get 28 bytes at a time
+        let mut all_bytes = Vec::new();
+        for offset in (0..macro_buffer_size).step_by(size as usize) {
+            let offset_bytes = shift_from_16_bit(offset);
+            let bytes = vec![offset_bytes.0, offset_bytes.1, size];
+            match self.hid_command(
+                ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_BUFFER,
+                bytes,
+            ) {
+                Some(val) => all_bytes.extend(val[4..].to_vec()),
+                None => return None,
+            }
+        }
+        Some(all_bytes)
+    }
+
     //   // From protocol: id_dynamic_keymap_macro_set_buffer <offset> <size> <data>
     //   // offset is 16bit. size is 8bit. data is ASCII characters and null (0x00) delimiters/terminator, maximum 28 bytes.
     //   // async setMacros(macros: Macros[]) {
@@ -721,6 +809,17 @@ impl KeyboardApi {
     //   async resetMacros() {
     //     await self.hid_command(APICommand.DYNAMIC_KEYMAP_MACRO_RESET);
     //   }
+
+    pub fn reset_macros(&self) -> Option<()> {
+        let bytes = vec![];
+        match self.hid_command(
+            ApiCommand::DYNAMIC_KEYMAP_MACRO_RESET,
+            bytes,
+        ) {
+            Some(_) => Some(()),
+            None => None,
+        }
+    }
 
     //   get commandQueueWrapper() {
     //     if (!globalCommandQueue[this.kbAddr]) {

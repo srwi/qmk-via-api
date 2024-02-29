@@ -32,7 +32,7 @@ pub fn shift_buffer_to_16_bit(buffer: &[u8]) -> Vec<u16> {
     shifted_buffer
 }
 
-fn shift_buffer_from_16_bit(buffer: &Vec<u16>) -> Vec<u8> {
+pub fn shift_buffer_from_16_bit(buffer: &Vec<u16>) -> Vec<u8> {
     let mut flattened = Vec::new();
     for value in buffer.iter() {
         let (hi, lo) = shift_from_16_bit(*value);
