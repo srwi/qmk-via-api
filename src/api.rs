@@ -7,13 +7,13 @@ type Layer = u8;
 type Row = u8;
 type Column = u8;
 
-struct MatrixInfo {
+pub struct MatrixInfo {
     rows: u8,
     cols: u8,
 }
 
 const COMMAND_START: u8 = 0x00;
-const PER_KEY_RGB_CHANNEL_COMMAND: Vec<u8> = vec![0, 1];
+const PER_KEY_RGB_CHANNEL_COMMAND: &'static [u8] = &[0, 1];
 
 const BACKLIGHT_BRIGHTNESS: u8 = 0x09;
 const BACKLIGHT_EFFECT: u8 = 0x0a;
@@ -38,6 +38,15 @@ impl KeyboardApi {
     //     return this.getHID().readP();
     //   }
 
+    // async getProtocolVersion() {
+    //     try {
+    //       const [, hi, lo] = await this.hidCommand(APICommand.GET_PROTOCOL_VERSION);
+    //       return shiftTo16Bit([hi, lo]);
+    //     } catch (e) {
+    //       return -1;
+    //     }
+    // }
+
     pub fn get_protocol_version(&self) -> Option<u16> {
         match self.hid_command(ApiCommand::GET_PROTOCOL_VERSION, vec![]) {
             Some(val) => Some(shift_to_16_bit(val[1], val[2])),
@@ -45,6 +54,14 @@ impl KeyboardApi {
         }
     }
 
+    // async getKey(layer: Layer, row: Row, col: Column) {
+    //     const buffer = await this.hidCommand(
+    //       APICommand.DYNAMIC_KEYMAP_GET_KEYCODE,
+    //       [layer, row, col],
+    //     );
+    //     return shiftTo16Bit([buffer[4], buffer[5]]);
+    // }
+    
     pub fn get_key(&self, layer: Layer, row: Row, col: Column) -> Option<u16> {
         match self.hid_command(
             ApiCommand::DYNAMIC_KEYMAP_GET_KEYCODE,
@@ -94,6 +111,21 @@ impl KeyboardApi {
     //     throw new Error('Unsupported protocol version');
     //   }
 
+    pub fn read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
+        match self.get_protocol_version() {
+            Some(version) => {
+                if version >= PROTOCOL_BETA {
+                    self.fast_read_raw_matrix(matrix_info, layer)
+                } else if version == PROTOCOL_ALPHA {
+                    self.slow_read_raw_matrix(matrix_info, layer)
+                } else {
+                    None  // TODO: Return error instead of None
+                }
+            }
+            None => None,
+        }
+    }
+
     //   async getKeymapBuffer(offset: number, size: number): Promise<number[]> {
     //     if (size > 28) {
     //       throw new Error('Max data length is 28');
@@ -106,6 +138,20 @@ impl KeyboardApi {
     //     ]);
     //     return [...res].slice(4, size + 4);
     //   }
+
+    pub fn get_keymap_buffer(&self, offset: u16, size: u8) -> Option<Vec<u8>> {
+        if size > 28 {
+            return None;  // TODO: Return error instead of None
+        }
+        let offset_bytes = shift_from_16_bit(offset);
+        match self.hid_command(
+            ApiCommand::DYNAMIC_KEYMAP_GET_BUFFER,
+            vec![offset_bytes.0, offset_bytes.1, size],
+        ) {
+            Some(val) => Some(val[4..(size as usize + 4)].to_vec()),
+            None => None,
+        }
+    }
 
     //   async fastReadRawMatrix(
     //     {rows, cols}: MatrixInfo,
@@ -144,6 +190,36 @@ impl KeyboardApi {
     //     const yieldedRes = await Promise.all(promiseRes);
     //     return yieldedRes.flatMap(shiftBufferTo16Bit);
     //   }
+
+    pub fn fast_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
+        const MAX_KEYCODES_PARTIAL: usize = 14;
+        let length = matrix_info.rows as usize * matrix_info.cols as usize;
+        let buffer_list = vec![0; length.div_ceil(MAX_KEYCODES_PARTIAL) as usize];
+        let mut remaining = length;
+        let mut result = Vec::new();
+        for _ in 0..buffer_list.len() {
+            if remaining < MAX_KEYCODES_PARTIAL {
+                match self.get_keymap_buffer(
+                    layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
+                    (remaining * 2) as u8
+                ) {
+                    Some(val) => result.extend(val),
+                    None => return None,
+                }
+                remaining = 0;
+            } else {
+                match self.get_keymap_buffer(
+                    layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
+                    (MAX_KEYCODES_PARTIAL * 2) as u8,
+                ) {
+                    Some(val) => result.extend(val),
+                    None => return None,
+                }
+                remaining -= MAX_KEYCODES_PARTIAL;
+            }
+        }
+        Some(shift_buffer_to_16_bit(&result))
+    }
 
     //   async slowReadRawMatrix(
     //     {rows, cols}: MatrixInfo,
@@ -399,7 +475,8 @@ impl KeyboardApi {
     pub fn get_per_key_rgb_matrix(&self, led_index_mapping: Vec<u8>) -> Option<Vec<Vec<u8>>> {
         let mut res = Vec::new();
         for led_index in led_index_mapping {
-            let bytes = [PER_KEY_RGB_CHANNEL_COMMAND.as_slice(), &vec![led_index, 1].as_slice()].concat();
+            let mut bytes = PER_KEY_RGB_CHANNEL_COMMAND.to_vec();
+            bytes.extend(vec![led_index, 1]);
             match self.hid_command(
                 ApiCommand::CUSTOM_MENU_GET_VALUE,
                 bytes,
@@ -426,7 +503,9 @@ impl KeyboardApi {
     //   }
 
     pub fn set_per_key_rgb_matrix(&self, index: u8, hue: u8, sat: u8) -> Option<()> {
-        let bytes = [PER_KEY_RGB_CHANNEL_COMMAND.as_slice(), &vec![index, 1, hue, sat].as_slice()].concat();
+        let mut bytes = PER_KEY_RGB_CHANNEL_COMMAND.to_vec();
+        bytes.extend(vec![index, 1, hue, sat]);
+        // let bytes = [PER_KEY_RGB_CHANNEL_COMMAND, &vec![index, 1, hue, sat].as_slice()].concat();
         match self.hid_command(
             ApiCommand::CUSTOM_MENU_SET_VALUE,
             bytes,
