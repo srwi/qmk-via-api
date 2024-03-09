@@ -1,5 +1,7 @@
 use std::vec;
 
+use hidapi::HidApi;
+
 use crate::api_commands::ApiCommand;
 use crate::utils::{shift_from_16_bit, shift_to_16_bit, shift_buffer_to_16_bit, shift_buffer_from_16_bit};
 
@@ -8,8 +10,8 @@ type Row = u8;
 type Column = u8;
 
 pub struct MatrixInfo {
-    rows: u8,
-    cols: u8,
+    pub rows: u8,
+    pub cols: u8,
 }
 
 const COMMAND_START: u8 = 0x00;
@@ -30,7 +32,29 @@ pub struct KeyboardApi {
 }
 
 impl KeyboardApi {
-    pub fn new(device: hidapi::HidDevice) -> KeyboardApi {
+    pub fn new(pid: u16, vid: u16, usage_page: u16) -> KeyboardApi {
+        let api = HidApi::new().unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        });
+    
+        let device = api
+            .device_list()
+            .find(|device| {
+                device.vendor_id() == vid
+                    && device.product_id() == pid
+                    && device.usage_page() == usage_page
+            })
+            .unwrap_or_else(|| {
+                eprintln!("Could not find keyboard.");
+                std::process::exit(1);
+            })
+            .open_device(&api)
+            .unwrap_or_else(|_| {
+                eprintln!("Could not open HID device.");
+                std::process::exit(1);
+            });
+        
         KeyboardApi { device }
     }
 
