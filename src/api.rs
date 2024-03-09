@@ -1,17 +1,36 @@
-use std::vec;
-
-use hidapi::HidApi;
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(non_camel_case_types)]
 
 use crate::api_commands::ApiCommand;
-use crate::utils::{shift_from_16_bit, shift_to_16_bit, shift_buffer_to_16_bit, shift_buffer_from_16_bit};
+
+use crate::utils::{
+    shift_buffer_from_16_bit, shift_buffer_to_16_bit, shift_from_16_bit, shift_to_16_bit,
+};
+
+use hidapi::HidApi;
+use pyo3::prelude::*;
+use std::vec;
 
 type Layer = u8;
 type Row = u8;
 type Column = u8;
 
+#[pyclass]
+#[derive(Clone, Copy)]
 pub struct MatrixInfo {
     pub rows: u8,
     pub cols: u8,
+}
+
+#[pyclass]
+#[derive(Clone, Copy)]
+pub enum KeyboardValue {
+    UPTIME = 0x01,
+    LAYOUT_OPTIONS = 0x02,
+    SWITCH_MATRIX_STATE = 0x03,
+    FIRMWARE_VERSION = 0x04,
+    DEVICE_INDICATION = 0x05,
 }
 
 const COMMAND_START: u8 = 0x00;
@@ -27,17 +46,20 @@ const PROTOCOL_ALPHA: u16 = 7;
 const PROTOCOL_BETA: u16 = 8;
 const PROTOCOL_GAMMA: u16 = 9;
 
+#[pyclass]
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
 }
 
+#[pymethods]
 impl KeyboardApi {
+    #[new]
     pub fn new(pid: u16, vid: u16, usage_page: u16) -> KeyboardApi {
         let api = HidApi::new().unwrap_or_else(|e| {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         });
-    
+
         let device = api
             .device_list()
             .find(|device| {
@@ -54,7 +76,7 @@ impl KeyboardApi {
                 eprintln!("Could not open HID device.");
                 std::process::exit(1);
             });
-        
+
         KeyboardApi { device }
     }
 
@@ -85,7 +107,7 @@ impl KeyboardApi {
     //     );
     //     return shiftTo16Bit([buffer[4], buffer[5]]);
     // }
-    
+
     pub fn get_key(&self, layer: Layer, row: Row, col: Column) -> Option<u16> {
         match self.hid_command(
             ApiCommand::DYNAMIC_KEYMAP_GET_KEYCODE,
@@ -143,7 +165,7 @@ impl KeyboardApi {
                 } else if version == PROTOCOL_ALPHA {
                     self.slow_read_raw_matrix(matrix_info, layer)
                 } else {
-                    None  // TODO: Return error instead of None
+                    None // TODO: Return error instead of None
                 }
             }
             None => None,
@@ -165,7 +187,7 @@ impl KeyboardApi {
 
     pub fn get_keymap_buffer(&self, offset: u16, size: u8) -> Option<Vec<u8>> {
         if size > 28 {
-            return None;  // TODO: Return error instead of None
+            return None; // TODO: Return error instead of None
         }
         let offset_bytes = shift_from_16_bit(offset);
         match self.hid_command(
@@ -225,7 +247,7 @@ impl KeyboardApi {
             if remaining < MAX_KEYCODES_PARTIAL {
                 match self.get_keymap_buffer(
                     layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
-                    (remaining * 2) as u8
+                    (remaining * 2) as u8,
                 ) {
                     Some(val) => result.extend(val),
                     None => return None,
@@ -309,7 +331,11 @@ impl KeyboardApi {
     //     );
     //   }
 
-    pub fn slow_write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Option<()> {
+    pub fn slow_write_raw_matrix(
+        &self,
+        matrix_info: MatrixInfo,
+        keymap: Vec<Vec<u16>>,
+    ) -> Option<()> {
         for (layer_idx, layer) in keymap.iter().enumerate() {
             for (key_idx, keycode) in layer.iter().enumerate() {
                 let row = (key_idx as u16 / matrix_info.cols as u16) as u8;
@@ -338,7 +364,10 @@ impl KeyboardApi {
     //   }
 
     pub fn fast_write_raw_matrix(&self, keymap: Vec<Vec<u16>>) -> Option<()> {
-        let data: Vec<u16> = keymap.iter().flat_map(|layer| layer.iter().cloned()).collect();
+        let data: Vec<u16> = keymap
+            .iter()
+            .flat_map(|layer| layer.iter().cloned())
+            .collect();
         let shifted_data = shift_buffer_from_16_bit(&data);
         let buffer_size = 28;
         for offset in (0..shifted_data.len()).step_by(buffer_size as usize) {
@@ -346,10 +375,7 @@ impl KeyboardApi {
             let buffer = shifted_data[offset..offset + buffer_size].to_vec();
             let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer_size as u8];
             bytes.extend(buffer);
-            match self.hid_command(
-                ApiCommand::DYNAMIC_KEYMAP_SET_BUFFER,
-                bytes,
-            ) {
+            match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_SET_BUFFER, bytes) {
                 Some(_) => (),
                 None => return None,
             }
@@ -369,12 +395,14 @@ impl KeyboardApi {
 
     pub fn get_keyboard_value(
         &self,
-        command: ApiCommand,
+        command: KeyboardValue,
         parameters: Vec<u8>,
         result_length: usize,
     ) -> Option<Vec<u8>> {
         let parameters_length = parameters.len();
-        match self.hid_command(command, parameters) {
+        let mut bytes = vec![command as u8];
+        bytes.extend(parameters);
+        match self.hid_command(ApiCommand::GET_KEYBOARD_VALUE, bytes) {
             Some(val) => {
                 Some(val[1 + parameters_length..1 + parameters_length + result_length].to_vec())
             }
@@ -387,8 +415,10 @@ impl KeyboardApi {
     //     await self.hid_command(APICommand.SET_KEYBOARD_VALUE, bytes);
     //   }
 
-    pub fn set_keyboard_value(&self, command: ApiCommand, rest: Vec<u8>) -> Option<()> {
-        match self.hid_command(command, rest) {
+    pub fn set_keyboard_value(&self, command: KeyboardValue, rest: Vec<u8>) -> Option<()> {
+        let mut bytes = vec![command as u8];
+        bytes.extend(rest);
+        match self.hid_command(ApiCommand::SET_KEYBOARD_VALUE, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -407,12 +437,7 @@ impl KeyboardApi {
     //     return shiftTo16Bit([res[4], res[5]]);
     //   }
 
-    pub fn get_encoder_value(
-        &self,
-        layer: Layer,
-        id: u8,
-        is_clockwise: bool,
-    ) -> Option<u16> {
+    pub fn get_encoder_value(&self, layer: Layer, id: u8, is_clockwise: bool) -> Option<u16> {
         match self.hid_command(
             ApiCommand::DYNAMIC_KEYMAP_GET_ENCODER,
             vec![layer, id, is_clockwise as u8],
@@ -440,11 +465,14 @@ impl KeyboardApi {
         keycode: u16,
     ) -> Option<()> {
         let keycode_bytes = shift_from_16_bit(keycode);
-        let bytes = vec![layer, id, is_clockwise as u8, keycode_bytes.0, keycode_bytes.1];
-        match self.hid_command(
-            ApiCommand::DYNAMIC_KEYMAP_SET_ENCODER,
-            bytes,
-        ) {
+        let bytes = vec![
+            layer,
+            id,
+            is_clockwise as u8,
+            keycode_bytes.0,
+            keycode_bytes.1,
+        ];
+        match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_SET_ENCODER, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -460,10 +488,7 @@ impl KeyboardApi {
 
     pub fn get_custom_menu_value(&self, command_bytes: Vec<u8>) -> Option<Vec<u8>> {
         let command_length = command_bytes.len();
-        match self.hid_command(
-            ApiCommand::CUSTOM_MENU_GET_VALUE,
-            command_bytes,
-        ) {
+        match self.hid_command(ApiCommand::CUSTOM_MENU_GET_VALUE, command_bytes) {
             Some(val) => Some(val[0..command_length].to_vec()),
             None => None,
         }
@@ -474,10 +499,7 @@ impl KeyboardApi {
     //   }
 
     pub fn set_custom_menu_value(&self, args: Vec<u8>) -> Option<()> {
-        match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SET_VALUE,
-            args,
-        ) {
+        match self.hid_command(ApiCommand::CUSTOM_MENU_SET_VALUE, args) {
             Some(_) => Some(()),
             None => None,
         }
@@ -501,10 +523,7 @@ impl KeyboardApi {
         for led_index in led_index_mapping {
             let mut bytes = PER_KEY_RGB_CHANNEL_COMMAND.to_vec();
             bytes.extend(vec![led_index, 1]);
-            match self.hid_command(
-                ApiCommand::CUSTOM_MENU_GET_VALUE,
-                bytes,
-            ) {
+            match self.hid_command(ApiCommand::CUSTOM_MENU_GET_VALUE, bytes) {
                 Some(val) => res.push(val[5..7].to_vec()),
                 None => return None,
             }
@@ -530,10 +549,7 @@ impl KeyboardApi {
         let mut bytes = PER_KEY_RGB_CHANNEL_COMMAND.to_vec();
         bytes.extend(vec![index, 1, hue, sat]);
         // let bytes = [PER_KEY_RGB_CHANNEL_COMMAND, &vec![index, 1, hue, sat].as_slice()].concat();
-        match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SET_VALUE,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::CUSTOM_MENU_SET_VALUE, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -551,9 +567,13 @@ impl KeyboardApi {
     //     return res.slice(2, 2 + resultLength);
     //   }
 
-    pub fn get_backlight_value(&self, command: ApiCommand, result_length: usize) -> Option<Vec<u8>> {
+    pub fn get_backlight_value(
+        &self,
+        command: ApiCommand,
+        result_length: usize,
+    ) -> Option<Vec<u8>> {
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_GET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
+            ApiCommand::CUSTOM_MENU_GET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
             vec![command as u8],
         ) {
             Some(val) => Some(val[2..result_length + 2].to_vec()),
@@ -570,7 +590,7 @@ impl KeyboardApi {
         let mut bytes: Vec<u8> = vec![command as u8];
         bytes.extend(rest);
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
+            ApiCommand::CUSTOM_MENU_SET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
             bytes,
         ) {
             Some(_) => Some(()),
@@ -589,7 +609,7 @@ impl KeyboardApi {
 
     pub fn get_rgb_mode(&self) -> Option<u8> {
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_GET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
+            ApiCommand::CUSTOM_MENU_GET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
             vec![BACKLIGHT_EFFECT],
         ) {
             Some(val) => Some(val[2]),
@@ -608,7 +628,7 @@ impl KeyboardApi {
 
     pub fn get_brightness(&self) -> Option<u8> {
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_GET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
+            ApiCommand::CUSTOM_MENU_GET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
             vec![BACKLIGHT_BRIGHTNESS],
         ) {
             Some(val) => Some(val[2]),
@@ -626,9 +646,13 @@ impl KeyboardApi {
     //   }
 
     pub fn get_color(&self, color_number: u8) -> Option<(u8, u8)> {
-        let bytes = vec![if color_number == 1 { BACKLIGHT_COLOR_1 } else { BACKLIGHT_COLOR_2 }];
+        let bytes = vec![if color_number == 1 {
+            BACKLIGHT_COLOR_1
+        } else {
+            BACKLIGHT_COLOR_2
+        }];
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_GET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
+            ApiCommand::CUSTOM_MENU_GET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
             bytes,
         ) {
             Some(val) => Some((val[2], val[3])),
@@ -646,9 +670,17 @@ impl KeyboardApi {
     //   }
 
     pub fn set_color(&self, color_number: u8, hue: u8, sat: u8) -> Option<()> {
-        let bytes = vec![if color_number == 1 { BACKLIGHT_COLOR_1 } else { BACKLIGHT_COLOR_2 }, hue, sat];
+        let bytes = vec![
+            if color_number == 1 {
+                BACKLIGHT_COLOR_1
+            } else {
+                BACKLIGHT_COLOR_2
+            },
+            hue,
+            sat,
+        ];
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
+            ApiCommand::CUSTOM_MENU_SET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
             bytes,
         ) {
             Some(_) => Some(()),
@@ -668,7 +700,7 @@ impl KeyboardApi {
     pub fn get_custom_color(&self, color_number: u8) -> Option<(u8, u8)> {
         let bytes = vec![BACKLIGHT_CUSTOM_COLOR, color_number];
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_GET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
+            ApiCommand::CUSTOM_MENU_GET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_GET_VALUE
             bytes,
         ) {
             Some(val) => Some((val[3], val[4])),
@@ -684,7 +716,7 @@ impl KeyboardApi {
     pub fn set_custom_color(&self, color_number: u8, hue: u8, sat: u8) -> Option<()> {
         let bytes = vec![BACKLIGHT_CUSTOM_COLOR, color_number, hue, sat];
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
+            ApiCommand::CUSTOM_MENU_SET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
             bytes,
         ) {
             Some(_) => Some(()),
@@ -700,7 +732,7 @@ impl KeyboardApi {
     pub fn set_rgb_mode(&self, effect: u8) -> Option<()> {
         let bytes = vec![BACKLIGHT_EFFECT, effect];
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SET_VALUE,  // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
+            ApiCommand::CUSTOM_MENU_SET_VALUE, // TODO: Check if it should be BACKLIGHT_CONFIG_SET_VALUE
             bytes,
         ) {
             Some(_) => Some(()),
@@ -714,10 +746,7 @@ impl KeyboardApi {
 
     pub fn commit_custom_menu(&self, channel: u8) -> Option<()> {
         let bytes = vec![channel];
-        match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SAVE,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::CUSTOM_MENU_SAVE, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -730,7 +759,7 @@ impl KeyboardApi {
     pub fn save_lighting(&self) -> Option<()> {
         let bytes = vec![];
         match self.hid_command(
-            ApiCommand::CUSTOM_MENU_SAVE,  // TODO: Check if it should be BACKLIGHT_CONFIG_SAVE
+            ApiCommand::CUSTOM_MENU_SAVE, // TODO: Check if it should be BACKLIGHT_CONFIG_SAVE
             bytes,
         ) {
             Some(_) => Some(()),
@@ -744,10 +773,7 @@ impl KeyboardApi {
 
     pub fn reset_eeprom(&self) -> Option<()> {
         let bytes = vec![];
-        match self.hid_command(
-            ApiCommand::EEPROM_RESET,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::EEPROM_RESET, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -759,10 +785,7 @@ impl KeyboardApi {
 
     pub fn jump_to_bootloader(&self) -> Option<()> {
         let bytes = vec![];
-        match self.hid_command(
-            ApiCommand::BOOTLOADER_JUMP,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::BOOTLOADER_JUMP, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -781,10 +804,7 @@ impl KeyboardApi {
     pub fn set_key(&self, layer: Layer, row: Row, column: Column, val: u16) -> Option<u16> {
         let val_bytes = shift_from_16_bit(val);
         let bytes = vec![layer, row, column, val_bytes.0, val_bytes.1];
-        match self.hid_command(
-            ApiCommand::DYNAMIC_KEYMAP_SET_KEYCODE,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_SET_KEYCODE, bytes) {
             Some(val) => Some(shift_to_16_bit(val[4], val[5])),
             None => None,
         }
@@ -799,10 +819,7 @@ impl KeyboardApi {
 
     pub fn get_macro_count(&self) -> Option<u8> {
         let bytes = vec![];
-        match self.hid_command(
-            ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_COUNT,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_COUNT, bytes) {
             Some(val) => Some(val[1]),
             None => None,
         }
@@ -818,10 +835,7 @@ impl KeyboardApi {
 
     pub fn get_macro_buffer_size(&self) -> Option<u16> {
         let bytes = vec![];
-        match self.hid_command(
-            ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_BUFFER_SIZE,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_BUFFER_SIZE, bytes) {
             Some(val) => Some(shift_to_16_bit(val[1], val[2])),
             None => None,
         }
@@ -848,15 +862,12 @@ impl KeyboardApi {
 
     pub fn get_macro_bytes(&self) -> Option<Vec<u8>> {
         let macro_buffer_size = self.get_macro_buffer_size()?;
-        let size: u8 = 28;  // Can only get 28 bytes at a time
+        let size: u8 = 28; // Can only get 28 bytes at a time
         let mut all_bytes = Vec::new();
         for offset in (0..macro_buffer_size).step_by(size as usize) {
             let offset_bytes = shift_from_16_bit(offset);
             let bytes = vec![offset_bytes.0, offset_bytes.1, size];
-            match self.hid_command(
-                ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_BUFFER,
-                bytes,
-            ) {
+            match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_MACRO_GET_BUFFER, bytes) {
                 Some(val) => all_bytes.extend(val[4..].to_vec()),
                 None => return None,
             }
@@ -913,29 +924,26 @@ impl KeyboardApi {
         let macro_buffer_size = self.get_macro_buffer_size()?;
         let size = data.len();
         if size > macro_buffer_size as usize {
-            return None;  // TODO: Return error instead of None
+            return None; // TODO: Return error instead of None
         }
 
         let last_offset = macro_buffer_size - 1;
         let last_offset_bytes = shift_from_16_bit(last_offset);
 
         self.reset_macros()?;
-        
+
         // Set last byte in buffer to non-zero (0xFF) to indicate write-in-progress
         self.hid_command(
             ApiCommand::DYNAMIC_KEYMAP_MACRO_SET_BUFFER,
             vec![last_offset_bytes.0, last_offset_bytes.1, 1, 0xff],
         )?;
 
-        let buffer_size: u8 = 28;  // Can only write 28 bytes at a time
+        let buffer_size: u8 = 28; // Can only write 28 bytes at a time
         for offset in (0..data.len()).step_by(buffer_size as usize) {
             let offset_bytes = shift_from_16_bit(offset as u16);
             let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer_size];
             bytes.extend(data[offset..offset + buffer_size as usize].to_vec());
-            self.hid_command(
-                ApiCommand::DYNAMIC_KEYMAP_MACRO_SET_BUFFER,
-                bytes,
-            )?;
+            self.hid_command(ApiCommand::DYNAMIC_KEYMAP_MACRO_SET_BUFFER, bytes)?;
         }
 
         // Set last byte in buffer to zero to indicate write finished
@@ -954,10 +962,7 @@ impl KeyboardApi {
 
     pub fn reset_macros(&self) -> Option<()> {
         let bytes = vec![];
-        match self.hid_command(
-            ApiCommand::DYNAMIC_KEYMAP_MACRO_RESET,
-            bytes,
-        ) {
+        match self.hid_command(ApiCommand::DYNAMIC_KEYMAP_MACRO_RESET, bytes) {
             Some(_) => Some(()),
             None => None,
         }
@@ -1018,7 +1023,7 @@ impl KeyboardApi {
             "Command for kb_addr: {:?}, Correct Resp: {:?}",
             command_bytes, buffer
         );
-        Some(buffer)  // TODO: Maybe it's possible to return a type that can be unwrapped in a match statement
+        Some(buffer) // TODO: Maybe it's possible to return a type that can be unwrapped in a match statement
     }
 
     //   async flushQueue() {

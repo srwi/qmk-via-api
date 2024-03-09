@@ -1,3 +1,9 @@
+#![allow(non_camel_case_types)]
+
+use pyo3::prelude::*;
+
+#[pyclass]
+#[derive(Clone, Copy)]
 pub enum ApiCommand {
     GET_PROTOCOL_VERSION = 0x01,
     GET_KEYBOARD_VALUE = 0x02,

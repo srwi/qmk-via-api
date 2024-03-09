@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use itertools::Itertools;
 
 pub fn get_bit_at_index(byte: u8, bit_index: u8) -> bool {
