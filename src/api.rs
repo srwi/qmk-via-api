@@ -909,6 +909,45 @@ impl KeyboardApi {
     //     }
     //   }
 
+    pub fn set_macro_bytes(&self, data: Vec<u8>) -> Option<()> {
+        let macro_buffer_size = self.get_macro_buffer_size()?;
+        let size = data.len();
+        if size > macro_buffer_size as usize {
+            return None;  // TODO: Return error instead of None
+        }
+
+        let last_offset = macro_buffer_size - 1;
+        let last_offset_bytes = shift_from_16_bit(last_offset);
+
+        self.reset_macros()?;
+        
+        // Set last byte in buffer to non-zero (0xFF) to indicate write-in-progress
+        self.hid_command(
+            ApiCommand::DYNAMIC_KEYMAP_MACRO_SET_BUFFER,
+            vec![last_offset_bytes.0, last_offset_bytes.1, 1, 0xff],
+        )?;
+
+        let buffer_size: u8 = 28;  // Can only write 28 bytes at a time
+        for offset in (0..data.len()).step_by(buffer_size as usize) {
+            let offset_bytes = shift_from_16_bit(offset as u16);
+            let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer_size];
+            bytes.extend(data[offset..offset + buffer_size as usize].to_vec());
+            self.hid_command(
+                ApiCommand::DYNAMIC_KEYMAP_MACRO_SET_BUFFER,
+                bytes,
+            )?;
+        }
+
+        // Set last byte in buffer to zero to indicate write finished
+        match self.hid_command(
+            ApiCommand::DYNAMIC_KEYMAP_MACRO_SET_BUFFER,
+            vec![last_offset_bytes.0, last_offset_bytes.1, 1, 0x00],
+        ) {
+            Some(_) => Some(()),
+            None => None,
+        }
+    }
+
     //   async resetMacros() {
     //     await self.hid_command(APICommand.DYNAMIC_KEYMAP_MACRO_RESET);
     //   }
