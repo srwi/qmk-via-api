@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 hidapi = "*"
 itertools = "0.12.1"
+mockall = "0.12.1"
 
 [dependencies.pyo3]
 version = "0.20.0"

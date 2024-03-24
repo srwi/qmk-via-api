@@ -2,6 +2,8 @@ use pyo3::prelude::*;
 
 mod api;
 mod api_commands;
+mod testing;
+mod testing2;
 mod utils;
 
 #[pymodule]

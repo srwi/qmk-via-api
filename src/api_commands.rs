@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 
 #[pyclass]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ApiCommand {
     GetProtocolVersion = 0x01,
     GetKeyboardValue = 0x02,

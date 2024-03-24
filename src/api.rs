@@ -1058,3 +1058,19 @@ impl KeyboardApi {
     //     return buffer;
     //   }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use mockall::predicate::*;
+
+//     #[test]
+//     fn test_get_protocol_version() {
+//         let mut mock = MockKeyboardApi::new(0, 0, 0);
+//         mock.expect_hid_command()
+//             .times(1)
+//             .with(eq(ApiCommand::GetProtocolVersion), eq(vec![]))
+//             .returning(|_, _| Ok([0, 0, 0, 0, 0, 0, 0, 0]));
+//         assert_eq!(mock.get_protocol_version(), Some(0));
+//     }
+// }
