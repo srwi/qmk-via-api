@@ -42,8 +42,62 @@ const PROTOCOL_ALPHA: u16 = 7;
 const PROTOCOL_BETA: u16 = 8;
 const PROTOCOL_GAMMA: u16 = 9;
 
-trait KeyboardApi {
-    fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>>;
+#[pyclass]
+pub struct KeyboardApi {
+    device: hidapi::HidDevice,
+}
+
+#[pymethods]
+impl KeyboardApi {
+    #[new]
+    pub fn new(vid: u16, pid: u16, usage_page: u16) -> Self {
+        let api = HidApi::new().unwrap_or_else(|e| {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        });
+
+        let device = api
+            .device_list()
+            .find(|device| {
+                device.vendor_id() == vid
+                    && device.product_id() == pid
+                    && device.usage_page() == usage_page
+            })
+            .unwrap_or_else(|| {
+                eprintln!("Could not find keyboard.");
+                std::process::exit(1);
+            })
+            .open_device(&api)
+            .unwrap_or_else(|_| {
+                eprintln!("Could not open HID device.");
+                std::process::exit(1);
+            });
+
+        KeyboardApi { device }
+    }
+
+    fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
+        let mut command_bytes: Vec<u8> = vec![COMMAND_START, command as u8];
+        command_bytes.extend(bytes);
+
+        let mut padded_array = vec![0; 33];
+        for (idx, &val) in command_bytes.iter().enumerate() {
+            padded_array[idx] = val;
+        }
+
+        let _ = self.device.write(&padded_array);
+
+        let mut buffer = vec![0; 33];
+        let _ = self.device.read(&mut buffer);
+
+        let buffer_command_bytes = &buffer[0..command_bytes.len() - 1];
+
+        if command_bytes[1..] != *buffer_command_bytes {
+            return None;
+        }
+
+        Some(buffer) // TODO: If possible, return a type that can be destructured in a match block
+    }
 
     fn get_protocol_version(&self) -> Option<u16> {
         match self.hid_command(ApiCommand::GetProtocolVersion, vec![]) {
@@ -487,109 +541,5 @@ trait KeyboardApi {
             Some(_) => Some(()),
             None => None,
         }
-    }
-}
-
-#[pyclass]
-pub struct QmkKeyboardApi {
-    device: hidapi::HidDevice,
-}
-
-impl QmkKeyboardApi {
-    pub fn new(pid: u16, vid: u16, usage_page: u16) -> Self {
-        let api = HidApi::new().unwrap_or_else(|e| {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        });
-
-        let device = api
-            .device_list()
-            .find(|device| {
-                device.vendor_id() == vid
-                    && device.product_id() == pid
-                    && device.usage_page() == usage_page
-            })
-            .unwrap_or_else(|| {
-                eprintln!("Could not find keyboard.");
-                std::process::exit(1);
-            })
-            .open_device(&api)
-            .unwrap_or_else(|_| {
-                eprintln!("Could not open HID device.");
-                std::process::exit(1);
-            });
-
-        QmkKeyboardApi { device }
-    }
-}
-
-impl KeyboardApi for QmkKeyboardApi {
-    fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
-        let mut command_bytes: Vec<u8> = vec![COMMAND_START, command as u8];
-        command_bytes.extend(bytes);
-
-        let mut padded_array = vec![0; 33];
-        for (idx, &val) in command_bytes.iter().enumerate() {
-            padded_array[idx] = val;
-        }
-
-        let _ = self.device.write(&padded_array);
-
-        let mut buffer = vec![0; 33];
-        let _ = self.device.read(&mut buffer);
-
-        let buffer_command_bytes = &buffer[0..command_bytes.len() - 1];
-
-        if command_bytes[1..] != *buffer_command_bytes {
-            return None;
-        }
-
-        Some(buffer) // TODO: If possible, return a type that can be destructured in a match block
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct KeyboardApiTester {
-        expected_command: ApiCommand,
-        expected_bytes: Vec<u8>,
-        response: Vec<u8>,
-    }
-
-    impl KeyboardApi for KeyboardApiTester {
-        fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
-            assert_eq!(command, self.expected_command);
-            assert_eq!(bytes, self.expected_bytes);
-            Some(self.response.clone())
-        }
-    }
-
-    #[test]
-    fn test_get_protocol_version() {
-        let api = KeyboardApiTester {
-            expected_command: ApiCommand::GetProtocolVersion,
-            expected_bytes: vec![],
-            response: vec![ApiCommand::GetProtocolVersion as u8, 0x00, 0x08],
-        };
-        assert_eq!(api.get_protocol_version(), Some(8));
-    }
-
-    #[test]
-    fn test_get_key() {
-        let api = KeyboardApiTester {
-            expected_command: ApiCommand::DynamicKeymapGetKeycode,
-            expected_bytes: vec![0, 1, 2],
-            response: vec![
-                ApiCommand::DynamicKeymapGetKeycode as u8,
-                0x00,
-                0x01,
-                0x02,
-                0x01,
-                0x01,
-            ],
-        };
-        assert_eq!(api.get_key(0, 1, 2), Some(257));
     }
 }

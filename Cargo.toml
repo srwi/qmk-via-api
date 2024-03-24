@@ -1,6 +1,6 @@
 [package]
 name = "rust-via-api"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [lib]
@@ -11,7 +11,6 @@ crate-type = ["cdylib"]
 [dependencies]
 hidapi = "*"
 itertools = "0.12.1"
-mockall = "0.12.1"
 
 [dependencies.pyo3]
 version = "0.20.0"
