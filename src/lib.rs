@@ -1,11 +1,12 @@
 use pyo3::prelude::*;
 
-mod api;
-mod api_commands;
-mod utils;
+pub mod api;
+pub mod api_commands;
+pub mod keycodes;
+pub mod utils;
 
 #[pymodule]
-fn rust_via_api(_py: Python, m: &PyModule) -> PyResult<()> {
+fn qmk_via_api(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<api::KeyboardApi>()?;
     Ok(())
 }
