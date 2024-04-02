@@ -15,7 +15,7 @@ Add to `Cargo.toml` dependencies:
 
 ```toml
 [dependencies]
-qmk-via-api = { git = "https://github.com/srwi/qmk-via-api" }
+qmk-via-api = "*"
 ```
 
 Usage example:
@@ -39,7 +39,7 @@ fn main() {
 Install with pip:
 
 ```bash
-pip install git+https://github.com/srwi/qmk-via-api.git
+pip install qmk-via-api
 ```
 
 Usage example:
