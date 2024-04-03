@@ -16,7 +16,7 @@ Additionally, this library includes Python bindings for all API calls for integr
 
 ## Rust
 
-Add dependencu with Cargo:
+Add dependency with Cargo:
 
 ```bash
 cargo add qmk-via-api
