@@ -3,6 +3,11 @@
 
 # qmk-via-api
 
+[![Version](https://img.shields.io/crates/v/qmk-via-api.svg)](https://crates.io/crates/qmk-via-api)
+[![image](https://img.shields.io/pypi/v/qmk-via-api.svg)](https://pypi.python.org/pypi/qmk-via-api)
+[![image](https://img.shields.io/pypi/pyversions/mocksign.svg)](https://pypi.python.org/pypi/mocksign)
+[![image](https://img.shields.io/pypi/l/qmk-via-api.svg)](https://pypi.python.org/pypi/qmk-via-api)
+
 `qmk-via-api` provides an implementation of the [VIA](https://www.caniusevia.com/docs/specification) API for [QMK](https://github.com/qmk/qmk_firmware) (Quantum Mechanical Keyboard) firmware-based keyboards. It allows developers to interact with QMK keyboards programmatically, enabling tasks such as configuring keymaps, macros, lighting effects and more.
 
 Additionally, this library includes Python bindings for all API calls for integration of QMK keyboard configuration into Python-based applications or scripts.
@@ -11,11 +16,10 @@ Additionally, this library includes Python bindings for all API calls for integr
 
 ## Rust
 
-Add to `Cargo.toml` dependencies:
+Add dependencu with Cargo:
 
-```toml
-[dependencies]
-qmk-via-api = "*"
+```bash
+cargo add qmk-via-api
 ```
 
 Usage example:
