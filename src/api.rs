@@ -1,26 +1,38 @@
 use crate::api_commands::ApiCommand;
-
-use crate::utils::{
-    shift_buffer_from_16_bit, shift_buffer_to_16_bit, shift_from_16_bit, shift_to_16_bit,
-};
-
+use crate::utils;
 use hidapi::HidApi;
 use pyo3::prelude::*;
+use std::str::FromStr;
 use std::vec;
+
+const COMMAND_START: u8 = 0x00;
+const PER_KEY_RGB_CHANNEL_COMMAND: &'static [u8] = &[0, 1];
+
+pub const DATA_BUFFER_SIZE: usize = 32;
+
+pub const BACKLIGHT_BRIGHTNESS: u8 = 0x09;
+pub const BACKLIGHT_EFFECT: u8 = 0x0a;
+pub const BACKLIGHT_COLOR_1: u8 = 0x0c;
+pub const BACKLIGHT_COLOR_2: u8 = 0x0d;
+pub const BACKLIGHT_CUSTOM_COLOR: u8 = 0x17;
+
+pub const PROTOCOL_ALPHA: u16 = 7;
+pub const PROTOCOL_BETA: u16 = 8;
+pub const PROTOCOL_GAMMA: u16 = 9;
 
 pub type Layer = u8;
 pub type Row = u8;
 pub type Column = u8;
 
 #[pyclass]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct MatrixInfo {
     pub rows: u8,
     pub cols: u8,
 }
 
 #[pyclass]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum KeyboardValue {
     Uptime = 0x01,
     LayoutOptions = 0x02,
@@ -29,18 +41,20 @@ pub enum KeyboardValue {
     DeviceIndication = 0x05,
 }
 
-const COMMAND_START: u8 = 0x00;
-const PER_KEY_RGB_CHANNEL_COMMAND: &'static [u8] = &[0, 1];
+impl FromStr for KeyboardValue {
+    type Err = &'static str;
 
-const BACKLIGHT_BRIGHTNESS: u8 = 0x09;
-const BACKLIGHT_EFFECT: u8 = 0x0a;
-const BACKLIGHT_COLOR_1: u8 = 0x0c;
-const BACKLIGHT_COLOR_2: u8 = 0x0d;
-const BACKLIGHT_CUSTOM_COLOR: u8 = 0x17;
-
-const PROTOCOL_ALPHA: u16 = 7;
-const PROTOCOL_BETA: u16 = 8;
-const PROTOCOL_GAMMA: u16 = 9;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Uptime" => Ok(KeyboardValue::Uptime),
+            "LayoutOptions" => Ok(KeyboardValue::LayoutOptions),
+            "SwitchMatrixState" => Ok(KeyboardValue::SwitchMatrixState),
+            "FirmwareVersion" => Ok(KeyboardValue::FirmwareVersion),
+            "DeviceIndication" => Ok(KeyboardValue::DeviceIndication),
+            _ => Err("Invalid KeyboardValue"),
+        }
+    }
+}
 
 #[pyclass]
 pub struct KeyboardApi {
@@ -53,7 +67,10 @@ impl KeyboardApi {
     pub fn new(vid: u16, pid: u16, usage_page: u16) -> Self {
         let api = HidApi::new().unwrap_or_else(|e| {
             eprintln!("Error: {}", e);
-            std::process::exit(1);
+            std::process::exit(1); // TODO: return error instead of quitting
+
+            // Change api to: api.list_devices()
+            // api = api.connect(device)
         });
 
         let device = api
@@ -87,7 +104,7 @@ impl KeyboardApi {
 
         let _ = self.device.write(&padded_array);
 
-        let mut buffer = vec![0; 33];
+        let mut buffer = vec![0; 32];
         let _ = self.device.read(&mut buffer);
 
         let buffer_command_bytes = &buffer[0..command_bytes.len() - 1];
@@ -99,14 +116,26 @@ impl KeyboardApi {
         Some(buffer) // TODO: If possible, return a type that can be destructured in a match block
     }
 
+    pub fn hid_read(&self) -> Option<Vec<u8>> {
+        let mut buffer = vec![0; 32];
+        match self.device.read(&mut buffer) {
+            Ok(_) => Some(buffer),
+            Err(_) => None,
+        }
+    }
+
+    pub fn hid_send(&self) {
+        // TODO
+    }
+
     pub fn get_protocol_version(&self) -> Option<u16> {
         self.hid_command(ApiCommand::GetProtocolVersion, vec![])
-            .map(|val| shift_to_16_bit(val[1], val[2]))
+            .map(|val| utils::shift_to_16_bit(val[1], val[2]))
     }
 
     pub fn get_key(&self, layer: Layer, row: Row, col: Column) -> Option<u16> {
         self.hid_command(ApiCommand::DynamicKeymapGetKeycode, vec![layer, row, col])
-            .map(|val| shift_to_16_bit(val[4], val[5]))
+            .map(|val| utils::shift_to_16_bit(val[4], val[5]))
     }
 
     pub fn get_layer_count(&self) -> Option<u8> {
@@ -131,11 +160,11 @@ impl KeyboardApi {
         }
     }
 
-    pub fn get_keymap_buffer(&self, offset: u16, size: u8) -> Option<Vec<u8>> {
-        if size > 28 {
+    fn get_keymap_buffer(&self, offset: u16, size: u8) -> Option<Vec<u8>> {
+        if size > DATA_BUFFER_SIZE as u8 {
             return None;
         }
-        let offset_bytes = shift_from_16_bit(offset);
+        let offset_bytes = utils::shift_from_16_bit(offset);
         self.hid_command(
             ApiCommand::DynamicKeymapGetBuffer,
             vec![offset_bytes.0, offset_bytes.1, size],
@@ -143,7 +172,7 @@ impl KeyboardApi {
         .map(|val| val[4..(size as usize + 4)].to_vec())
     }
 
-    pub fn fast_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
+    fn fast_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
         const MAX_KEYCODES_PARTIAL: usize = 14;
         let length = matrix_info.rows as usize * matrix_info.cols as usize;
         let buffer_list = vec![0; length.div_ceil(MAX_KEYCODES_PARTIAL) as usize];
@@ -166,10 +195,10 @@ impl KeyboardApi {
                 remaining -= MAX_KEYCODES_PARTIAL;
             }
         }
-        Some(shift_buffer_to_16_bit(&result))
+        Some(utils::shift_buffer_to_16_bit(&result))
     }
 
-    pub fn slow_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
+    fn slow_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
         let length = matrix_info.rows as usize * matrix_info.cols as usize;
         let mut res = Vec::new();
         for i in 0..length {
@@ -211,12 +240,12 @@ impl KeyboardApi {
             .iter()
             .flat_map(|layer| layer.iter().cloned())
             .collect();
-        let shifted_data = shift_buffer_from_16_bit(&data);
-        let buffer_size = 28;
-        for offset in (0..shifted_data.len()).step_by(buffer_size as usize) {
-            let offset_bytes = shift_from_16_bit(offset as u16);
-            let buffer = shifted_data[offset..offset + buffer_size].to_vec();
-            let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer_size as u8];
+        let shifted_data = utils::shift_buffer_from_16_bit(&data);
+        for offset in (0..shifted_data.len()).step_by(DATA_BUFFER_SIZE) {
+            let offset_bytes = utils::shift_from_16_bit(offset as u16);
+            let end = std::cmp::min(offset + DATA_BUFFER_SIZE, shifted_data.len());
+            let buffer = shifted_data[offset..end].to_vec();
+            let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer.len() as u8];
             bytes.extend(buffer);
             self.hid_command(ApiCommand::DynamicKeymapSetBuffer, bytes)
                 .map(|_| ());
@@ -237,9 +266,9 @@ impl KeyboardApi {
             .map(|val| val[1 + parameters_length..1 + parameters_length + result_length].to_vec())
     }
 
-    pub fn set_keyboard_value(&self, command: KeyboardValue, rest: Vec<u8>) -> Option<()> {
+    pub fn set_keyboard_value(&self, command: KeyboardValue, parameters: Vec<u8>) -> Option<()> {
         let mut bytes = vec![command as u8];
-        bytes.extend(rest);
+        bytes.extend(parameters);
         self.hid_command(ApiCommand::SetKeyboardValue, bytes)
             .map(|_| ())
     }
@@ -249,7 +278,7 @@ impl KeyboardApi {
             ApiCommand::DynamicKeymapGetEncoder,
             vec![layer, id, is_clockwise as u8],
         )
-        .map(|val| shift_to_16_bit(val[4], val[5]))
+        .map(|val| utils::shift_to_16_bit(val[4], val[5]))
     }
 
     pub fn set_encoder_value(
@@ -259,7 +288,7 @@ impl KeyboardApi {
         is_clockwise: bool,
         keycode: u16,
     ) -> Option<()> {
-        let keycode_bytes = shift_from_16_bit(keycode);
+        let keycode_bytes = utils::shift_from_16_bit(keycode);
         let bytes = vec![
             layer,
             id,
@@ -394,10 +423,10 @@ impl KeyboardApi {
     }
 
     pub fn set_key(&self, layer: Layer, row: Row, column: Column, val: u16) -> Option<u16> {
-        let val_bytes = shift_from_16_bit(val);
+        let val_bytes = utils::shift_from_16_bit(val);
         let bytes = vec![layer, row, column, val_bytes.0, val_bytes.1];
         self.hid_command(ApiCommand::DynamicKeymapSetKeycode, bytes)
-            .map(|val| shift_to_16_bit(val[4], val[5]))
+            .map(|val| utils::shift_to_16_bit(val[4], val[5]))
     }
 
     pub fn get_macro_count(&self) -> Option<u8> {
@@ -409,18 +438,24 @@ impl KeyboardApi {
     pub fn get_macro_buffer_size(&self) -> Option<u16> {
         let bytes = vec![];
         self.hid_command(ApiCommand::DynamicKeymapMacroGetBufferSize, bytes)
-            .map(|val| shift_to_16_bit(val[1], val[2]))
+            .map(|val| utils::shift_to_16_bit(val[1], val[2]))
     }
 
     pub fn get_macro_bytes(&self) -> Option<Vec<u8>> {
-        let macro_buffer_size = self.get_macro_buffer_size()?;
-        let size: u8 = 28; // Can only get 28 bytes at a time
+        let macro_buffer_size = self.get_macro_buffer_size()? as usize;
         let mut all_bytes = Vec::new();
-        for offset in (0..macro_buffer_size).step_by(size as usize) {
-            let offset_bytes = shift_from_16_bit(offset);
-            let bytes = vec![offset_bytes.0, offset_bytes.1, size];
+        for offset in (0..macro_buffer_size).step_by(DATA_BUFFER_SIZE) {
+            let offset_bytes = utils::shift_from_16_bit(offset as u16);
+            let remaining_bytes = macro_buffer_size - offset;
+            let bytes = vec![offset_bytes.0, offset_bytes.1, DATA_BUFFER_SIZE as u8];
             match self.hid_command(ApiCommand::DynamicKeymapMacroGetBuffer, bytes) {
-                Some(val) => all_bytes.extend(val[4..].to_vec()),
+                Some(val) => {
+                    if remaining_bytes < DATA_BUFFER_SIZE {
+                        all_bytes.extend(val[4..(4 + remaining_bytes)].to_vec())
+                    } else {
+                        all_bytes.extend(val[4..].to_vec())
+                    }
+                }
                 None => return None,
             }
         }
@@ -434,10 +469,10 @@ impl KeyboardApi {
             return None;
         }
 
-        let last_offset = macro_buffer_size - 1;
-        let last_offset_bytes = shift_from_16_bit(last_offset);
-
         self.reset_macros()?;
+
+        let last_offset = macro_buffer_size - 1;
+        let last_offset_bytes = utils::shift_from_16_bit(last_offset);
 
         // Set last byte in buffer to non-zero (0xFF) to indicate write-in-progress
         self.hid_command(
@@ -445,11 +480,12 @@ impl KeyboardApi {
             vec![last_offset_bytes.0, last_offset_bytes.1, 1, 0xff],
         )?;
 
-        let buffer_size: u8 = 28; // Can only write 28 bytes at a time
-        for offset in (0..data.len()).step_by(buffer_size as usize) {
-            let offset_bytes = shift_from_16_bit(offset as u16);
-            let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer_size];
-            bytes.extend(data[offset..offset + buffer_size as usize].to_vec());
+        for offset in (0..data.len()).step_by(DATA_BUFFER_SIZE) {
+            let offset_bytes = utils::shift_from_16_bit(offset as u16);
+            let end = std::cmp::min(offset + DATA_BUFFER_SIZE, data.len());
+            let buffer = data[offset..end].to_vec();
+            let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer.len() as u8];
+            bytes.extend(buffer);
             self.hid_command(ApiCommand::DynamicKeymapMacroSetBuffer, bytes)?;
         }
 
