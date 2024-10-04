@@ -8,7 +8,8 @@ use std::vec;
 const COMMAND_START: u8 = 0x00;
 const PER_KEY_RGB_CHANNEL_COMMAND: &'static [u8] = &[0, 1];
 
-pub const DATA_BUFFER_SIZE: usize = 32;
+pub const RAW_EPSIZE: usize = 32;
+pub const DATA_BUFFER_SIZE: usize = 28;
 
 pub const BACKLIGHT_BRIGHTNESS: u8 = 0x09;
 pub const BACKLIGHT_EFFECT: u8 = 0x0a;
@@ -64,14 +65,10 @@ pub struct KeyboardApi {
 #[pymethods]
 impl KeyboardApi {
     #[new]
-    pub fn new(vid: u16, pid: u16, usage_page: u16) -> Self {
-        let api = HidApi::new().unwrap_or_else(|e| {
-            eprintln!("Error: {}", e);
-            std::process::exit(1); // TODO: return error instead of quitting
-
-            // Change api to: api.list_devices()
-            // api = api.connect(device)
-        });
+    pub fn new(vid: u16, pid: u16, usage_page: u16) -> PyResult<Self> {
+        let api = HidApi::new().map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Error: {}", e))
+        })?;
 
         let device = api
             .device_list()
@@ -80,52 +77,57 @@ impl KeyboardApi {
                     && device.product_id() == pid
                     && device.usage_page() == usage_page
             })
-            .unwrap_or_else(|| {
-                eprintln!("Could not find keyboard.");
-                std::process::exit(1);
-            })
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Could not find keyboard.")
+            })?
             .open_device(&api)
-            .unwrap_or_else(|_| {
-                eprintln!("Could not open HID device.");
-                std::process::exit(1);
-            });
+            .map_err(|_| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Could not open HID device.")
+            })?;
 
-        KeyboardApi { device }
+        Ok(KeyboardApi { device })
     }
 
     pub fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
-        let mut command_bytes: Vec<u8> = vec![COMMAND_START, command as u8];
+        let mut command_bytes: Vec<u8> = vec![command as u8];
         command_bytes.extend(bytes);
 
-        let mut padded_array = vec![0; 33];
-        for (idx, &val) in command_bytes.iter().enumerate() {
-            padded_array[idx] = val;
+        self.hid_send(command_bytes.clone())?;
+
+        let buffer = self.hid_read()?;
+        if buffer.starts_with(&command_bytes) {
+            Some(buffer)
+        } else {
+            None
         }
-
-        let _ = self.device.write(&padded_array);
-
-        let mut buffer = vec![0; 32];
-        let _ = self.device.read(&mut buffer);
-
-        let buffer_command_bytes = &buffer[0..command_bytes.len() - 1];
-
-        if command_bytes[1..] != *buffer_command_bytes {
-            return None;
-        }
-
-        Some(buffer) // TODO: If possible, return a type that can be destructured in a match block
     }
 
     pub fn hid_read(&self) -> Option<Vec<u8>> {
-        let mut buffer = vec![0; 32];
+        let mut buffer = vec![0; RAW_EPSIZE];
         match self.device.read(&mut buffer) {
             Ok(_) => Some(buffer),
             Err(_) => None,
         }
     }
 
-    pub fn hid_send(&self) {
-        // TODO
+    pub fn hid_send(&self, bytes: Vec<u8>) -> Option<()> {
+        if bytes.len() > RAW_EPSIZE {
+            return None;
+        }
+
+        let mut command_bytes: Vec<u8> = vec![COMMAND_START];
+        command_bytes.extend(bytes);
+
+        let mut padded_array = vec![0; RAW_EPSIZE + 1];
+        for (idx, &val) in command_bytes.iter().enumerate() {
+            padded_array[idx] = val;
+        }
+
+        if self.device.write(&padded_array).ok()? == RAW_EPSIZE + 1 {
+            return Some(());
+        }
+
+        None
     }
 
     pub fn get_protocol_version(&self) -> Option<u16> {

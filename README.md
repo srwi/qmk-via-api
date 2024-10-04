@@ -1,14 +1,13 @@
 > [!WARNING]  
-> `qmk-via-api` is currently in very early development and mostly untested. Use at your own risk!
+> `qmk-via-api` is in early development and partly untested. Use at your own risk!
 
 # qmk-via-api
 
 [![Version](https://img.shields.io/crates/v/qmk-via-api.svg)](https://crates.io/crates/qmk-via-api)
 [![image](https://img.shields.io/pypi/v/qmk-via-api.svg)](https://pypi.python.org/pypi/qmk-via-api)
-[![image](https://img.shields.io/pypi/pyversions/mocksign.svg)](https://pypi.python.org/pypi/mocksign)
 [![image](https://img.shields.io/pypi/l/qmk-via-api.svg)](https://pypi.python.org/pypi/qmk-via-api)
 
-`qmk-via-api` provides an implementation of the [VIA](https://www.caniusevia.com/docs/specification) API for [QMK](https://github.com/qmk/qmk_firmware) (Quantum Mechanical Keyboard) firmware-based keyboards. It allows developers to interact with QMK keyboards programmatically, enabling tasks such as configuring keymaps, macros, lighting effects and more.
+`qmk-via-api` provides an implementation of the [VIA](https://www.caniusevia.com/docs/specification) API for [QMK](https://github.com/qmk/qmk_firmware) (Quantum Mechanical Keyboard) based keyboards. It allows developers to interact with QMK keyboards programmatically, enabling tasks such as configuring keymaps, macros, lighting effects and more.
 
 Additionally, this library includes Python bindings for all API calls for integration of QMK keyboard configuration into Python-based applications or scripts.
 
@@ -32,7 +31,7 @@ const PRODUCT_PID: u16 = 0x604D;
 const USAGE_PAGE: u16 = 0xff60;
 
 fn main() {
-    let api = KeyboardApi::new(PRODUCT_VID, PRODUCT_PID, USAGE_PAGE);
+    let api = KeyboardApi::new(PRODUCT_VID, PRODUCT_PID, USAGE_PAGE).unwrap();
     println!("Protocol version: {:?}", api.get_protocol_version());
     println!("Layer count: {:?}", api.get_layer_count());
 }
