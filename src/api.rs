@@ -88,6 +88,7 @@ impl KeyboardApi {
         Ok(KeyboardApi { device })
     }
 
+    /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
     pub fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
         let mut command_bytes: Vec<u8> = vec![command as u8];
         command_bytes.extend(bytes);
@@ -102,6 +103,7 @@ impl KeyboardApi {
         }
     }
 
+    /// Reads from the HID device. Returns None if the read fails.
     pub fn hid_read(&self) -> Option<Vec<u8>> {
         let mut buffer = vec![0; RAW_EPSIZE];
         match self.device.read(&mut buffer) {
@@ -110,6 +112,16 @@ impl KeyboardApi {
         }
     }
 
+    /// Sends a raw HID command prefixed with the command byte. Returns None if the send fails.
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` - The bytes to send.
+    ///
+    /// # Returns
+    ///
+    /// * `Some(())` if the send was successful.
+    /// * `None` if the send failed.
     pub fn hid_send(&self, bytes: Vec<u8>) -> Option<()> {
         if bytes.len() > RAW_EPSIZE {
             return None;
@@ -130,16 +142,13 @@ impl KeyboardApi {
         None
     }
 
+    /// Returns the protocol version of the keyboard.
     pub fn get_protocol_version(&self) -> Option<u16> {
         self.hid_command(ApiCommand::GetProtocolVersion, vec![])
             .map(|val| utils::shift_to_16_bit(val[1], val[2]))
     }
 
-    pub fn get_key(&self, layer: Layer, row: Row, col: Column) -> Option<u16> {
-        self.hid_command(ApiCommand::DynamicKeymapGetKeycode, vec![layer, row, col])
-            .map(|val| utils::shift_to_16_bit(val[4], val[5]))
-    }
-
+    /// Returns the number of layers on the keyboard.
     pub fn get_layer_count(&self) -> Option<u8> {
         match self.get_protocol_version() {
             Some(version) if version >= PROTOCOL_BETA => self
@@ -150,6 +159,21 @@ impl KeyboardApi {
         }
     }
 
+    /// Returns the keycode at the given layer, row, and column.
+    pub fn get_key(&self, layer: Layer, row: Row, col: Column) -> Option<u16> {
+        self.hid_command(ApiCommand::DynamicKeymapGetKeycode, vec![layer, row, col])
+            .map(|val| utils::shift_to_16_bit(val[4], val[5]))
+    }
+
+    /// Sets the keycode at the given layer, row, and column.
+    pub fn set_key(&self, layer: Layer, row: Row, column: Column, val: u16) -> Option<u16> {
+        let val_bytes = utils::shift_from_16_bit(val);
+        let bytes = vec![layer, row, column, val_bytes.0, val_bytes.1];
+        self.hid_command(ApiCommand::DynamicKeymapSetKeycode, bytes)
+            .map(|val| utils::shift_to_16_bit(val[4], val[5]))
+    }
+
+    /// Returns the keycodes for the given matrix info (number of rows and columns) and layer.
     pub fn read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
         match self.get_protocol_version() {
             Some(version) if version >= PROTOCOL_BETA => {
@@ -211,6 +235,7 @@ impl KeyboardApi {
         Some(res)
     }
 
+    ///
     pub fn write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Option<()> {
         match self.get_protocol_version() {
             Some(version) if version >= PROTOCOL_BETA => self.fast_write_raw_matrix(keymap),
@@ -221,11 +246,7 @@ impl KeyboardApi {
         }
     }
 
-    pub fn slow_write_raw_matrix(
-        &self,
-        matrix_info: MatrixInfo,
-        keymap: Vec<Vec<u16>>,
-    ) -> Option<()> {
+    fn slow_write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Option<()> {
         for (layer_idx, layer) in keymap.iter().enumerate() {
             for (key_idx, keycode) in layer.iter().enumerate() {
                 let row = (key_idx as u16 / matrix_info.cols as u16) as u8;
@@ -237,7 +258,7 @@ impl KeyboardApi {
         Some(())
     }
 
-    pub fn fast_write_raw_matrix(&self, keymap: Vec<Vec<u16>>) -> Option<()> {
+    fn fast_write_raw_matrix(&self, keymap: Vec<Vec<u16>>) -> Option<()> {
         let data: Vec<u16> = keymap
             .iter()
             .flat_map(|layer| layer.iter().cloned())
@@ -313,6 +334,12 @@ impl KeyboardApi {
             .map(|_| ())
     }
 
+    pub fn commit_custom_menu(&self, channel: u8) -> Option<()> {
+        let bytes = vec![channel];
+        self.hid_command(ApiCommand::CustomMenuSave, bytes)
+            .map(|_| ())
+    }
+
     pub fn get_per_key_rgb_matrix(&self, led_index_mapping: Vec<u8>) -> Option<Vec<Vec<u8>>> {
         let mut res = Vec::new();
         for led_index in led_index_mapping {
@@ -349,15 +376,12 @@ impl KeyboardApi {
             .map(|_| ())
     }
 
-    pub fn get_rgb_mode(&self) -> Option<u8> {
-        self.hid_command(ApiCommand::CustomMenuGetValue, vec![BACKLIGHT_EFFECT])
-            .map(|val| val[2])
-    }
-
     pub fn get_brightness(&self) -> Option<u8> {
         self.hid_command(ApiCommand::CustomMenuGetValue, vec![BACKLIGHT_BRIGHTNESS])
             .map(|val| val[2])
     }
+
+    // TODO: Add set brightness function
 
     pub fn get_color(&self, color_number: u8) -> Option<(u8, u8)> {
         let bytes = vec![if color_number == 1 {
@@ -395,15 +419,14 @@ impl KeyboardApi {
             .map(|_| ())
     }
 
+    pub fn get_rgb_mode(&self) -> Option<u8> {
+        self.hid_command(ApiCommand::CustomMenuGetValue, vec![BACKLIGHT_EFFECT])
+            .map(|val| val[2])
+    }
+
     pub fn set_rgb_mode(&self, effect: u8) -> Option<()> {
         let bytes = vec![BACKLIGHT_EFFECT, effect];
         self.hid_command(ApiCommand::CustomMenuSetValue, bytes)
-            .map(|_| ())
-    }
-
-    pub fn commit_custom_menu(&self, channel: u8) -> Option<()> {
-        let bytes = vec![channel];
-        self.hid_command(ApiCommand::CustomMenuSave, bytes)
             .map(|_| ())
     }
 
@@ -413,31 +436,13 @@ impl KeyboardApi {
             .map(|_| ())
     }
 
-    pub fn reset_eeprom(&self) -> Option<()> {
-        let bytes = vec![];
-        self.hid_command(ApiCommand::EepromReset, bytes).map(|_| ())
-    }
-
-    pub fn jump_to_bootloader(&self) -> Option<()> {
-        let bytes = vec![];
-        self.hid_command(ApiCommand::BootloaderJump, bytes)
-            .map(|_| ())
-    }
-
-    pub fn set_key(&self, layer: Layer, row: Row, column: Column, val: u16) -> Option<u16> {
-        let val_bytes = utils::shift_from_16_bit(val);
-        let bytes = vec![layer, row, column, val_bytes.0, val_bytes.1];
-        self.hid_command(ApiCommand::DynamicKeymapSetKeycode, bytes)
-            .map(|val| utils::shift_to_16_bit(val[4], val[5]))
-    }
-
     pub fn get_macro_count(&self) -> Option<u8> {
         let bytes = vec![];
         self.hid_command(ApiCommand::DynamicKeymapMacroGetCount, bytes)
             .map(|val| val[1])
     }
 
-    pub fn get_macro_buffer_size(&self) -> Option<u16> {
+    fn get_macro_buffer_size(&self) -> Option<u16> {
         let bytes = vec![];
         self.hid_command(ApiCommand::DynamicKeymapMacroGetBufferSize, bytes)
             .map(|val| utils::shift_to_16_bit(val[1], val[2]))
@@ -500,9 +505,21 @@ impl KeyboardApi {
         Some(())
     }
 
+    /// Resets all saved macros.
     pub fn reset_macros(&self) -> Option<()> {
         let bytes = vec![];
         self.hid_command(ApiCommand::DynamicKeymapMacroReset, bytes)
+            .map(|_| ())
+    }
+
+    pub fn reset_eeprom(&self) -> Option<()> {
+        let bytes = vec![];
+        self.hid_command(ApiCommand::EepromReset, bytes).map(|_| ())
+    }
+
+    pub fn jump_to_bootloader(&self) -> Option<()> {
+        let bytes = vec![];
+        self.hid_command(ApiCommand::BootloaderJump, bytes)
             .map(|_| ())
     }
 }
