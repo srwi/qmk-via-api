@@ -1,4 +1,7 @@
-use crate::api_commands::ApiCommand;
+use crate::api_commands::{
+    ViaChannelId, ViaCommandId, ViaQmkAudioValue, ViaQmkBacklightValue, ViaQmkLedMatrixValue,
+    ViaQmkRgbMatrixValue, ViaQmkRgblightValue,
+};
 use crate::utils;
 use hidapi::HidApi;
 use pyo3::prelude::*;
@@ -6,16 +9,9 @@ use std::str::FromStr;
 use std::vec;
 
 const COMMAND_START: u8 = 0x00;
-const PER_KEY_RGB_CHANNEL_COMMAND: &'static [u8] = &[0, 1];
 
 pub const RAW_EPSIZE: usize = 32;
 pub const DATA_BUFFER_SIZE: usize = 28;
-
-pub const BACKLIGHT_BRIGHTNESS: u8 = 0x09;
-pub const BACKLIGHT_EFFECT: u8 = 0x0a;
-pub const BACKLIGHT_COLOR_1: u8 = 0x0c;
-pub const BACKLIGHT_COLOR_2: u8 = 0x0d;
-pub const BACKLIGHT_CUSTOM_COLOR: u8 = 0x17;
 
 pub const PROTOCOL_ALPHA: u16 = 7;
 pub const PROTOCOL_BETA: u16 = 8;
@@ -89,7 +85,7 @@ impl KeyboardApi {
     }
 
     /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
-    pub fn hid_command(&self, command: ApiCommand, bytes: Vec<u8>) -> Option<Vec<u8>> {
+    pub fn hid_command(&self, command: ViaCommandId, bytes: Vec<u8>) -> Option<Vec<u8>> {
         let mut command_bytes: Vec<u8> = vec![command as u8];
         command_bytes.extend(bytes);
 
@@ -113,15 +109,6 @@ impl KeyboardApi {
     }
 
     /// Sends a raw HID command prefixed with the command byte. Returns None if the send fails.
-    ///
-    /// # Arguments
-    ///
-    /// * `bytes` - The bytes to send.
-    ///
-    /// # Returns
-    ///
-    /// * `Some(())` if the send was successful.
-    /// * `None` if the send failed.
     pub fn hid_send(&self, bytes: Vec<u8>) -> Option<()> {
         if bytes.len() > RAW_EPSIZE {
             return None;
@@ -144,7 +131,7 @@ impl KeyboardApi {
 
     /// Returns the protocol version of the keyboard.
     pub fn get_protocol_version(&self) -> Option<u16> {
-        self.hid_command(ApiCommand::GetProtocolVersion, vec![])
+        self.hid_command(ViaCommandId::GetProtocolVersion, vec![])
             .map(|val| utils::shift_to_16_bit(val[1], val[2]))
     }
 
@@ -152,7 +139,7 @@ impl KeyboardApi {
     pub fn get_layer_count(&self) -> Option<u8> {
         match self.get_protocol_version() {
             Some(version) if version >= PROTOCOL_BETA => self
-                .hid_command(ApiCommand::DynamicKeymapGetLayerCount, vec![])
+                .hid_command(ViaCommandId::DynamicKeymapGetLayerCount, vec![])
                 .map(|val| val[1]),
             Some(_) => Some(4),
             _ => None,
@@ -161,7 +148,7 @@ impl KeyboardApi {
 
     /// Returns the keycode at the given layer, row, and column.
     pub fn get_key(&self, layer: Layer, row: Row, col: Column) -> Option<u16> {
-        self.hid_command(ApiCommand::DynamicKeymapGetKeycode, vec![layer, row, col])
+        self.hid_command(ViaCommandId::DynamicKeymapGetKeycode, vec![layer, row, col])
             .map(|val| utils::shift_to_16_bit(val[4], val[5]))
     }
 
@@ -169,7 +156,7 @@ impl KeyboardApi {
     pub fn set_key(&self, layer: Layer, row: Row, column: Column, val: u16) -> Option<u16> {
         let val_bytes = utils::shift_from_16_bit(val);
         let bytes = vec![layer, row, column, val_bytes.0, val_bytes.1];
-        self.hid_command(ApiCommand::DynamicKeymapSetKeycode, bytes)
+        self.hid_command(ViaCommandId::DynamicKeymapSetKeycode, bytes)
             .map(|val| utils::shift_to_16_bit(val[4], val[5]))
     }
 
@@ -192,7 +179,7 @@ impl KeyboardApi {
         }
         let offset_bytes = utils::shift_from_16_bit(offset);
         self.hid_command(
-            ApiCommand::DynamicKeymapGetBuffer,
+            ViaCommandId::DynamicKeymapGetBuffer,
             vec![offset_bytes.0, offset_bytes.1, size],
         )
         .map(|val| val[4..(size as usize + 4)].to_vec())
@@ -235,7 +222,7 @@ impl KeyboardApi {
         Some(res)
     }
 
-    ///
+    /// Writes a keymap to the keyboard for the given matrix info (number of rows and columns).
     pub fn write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Option<()> {
         match self.get_protocol_version() {
             Some(version) if version >= PROTOCOL_BETA => self.fast_write_raw_matrix(keymap),
@@ -270,12 +257,13 @@ impl KeyboardApi {
             let buffer = shifted_data[offset..end].to_vec();
             let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer.len() as u8];
             bytes.extend(buffer);
-            self.hid_command(ApiCommand::DynamicKeymapSetBuffer, bytes)
+            self.hid_command(ViaCommandId::DynamicKeymapSetBuffer, bytes)
                 .map(|_| ());
         }
         Some(())
     }
 
+    /// Returns a keyboard value. This can be used to retrieve keyboard information like uptime, layout options, switch matrix state and firmware version.
     pub fn get_keyboard_value(
         &self,
         command: KeyboardValue,
@@ -285,25 +273,28 @@ impl KeyboardApi {
         let parameters_length = parameters.len();
         let mut bytes = vec![command as u8];
         bytes.extend(parameters);
-        self.hid_command(ApiCommand::GetKeyboardValue, bytes)
+        self.hid_command(ViaCommandId::GetKeyboardValue, bytes)
             .map(|val| val[1 + parameters_length..1 + parameters_length + result_length].to_vec())
     }
 
+    /// Sets a keyboard value. This can be used to set keyboard values like layout options or device indication.
     pub fn set_keyboard_value(&self, command: KeyboardValue, parameters: Vec<u8>) -> Option<()> {
         let mut bytes = vec![command as u8];
         bytes.extend(parameters);
-        self.hid_command(ApiCommand::SetKeyboardValue, bytes)
+        self.hid_command(ViaCommandId::SetKeyboardValue, bytes)
             .map(|_| ())
     }
 
+    /// Gets the encoder value for the given layer, id, and direction.
     pub fn get_encoder_value(&self, layer: Layer, id: u8, is_clockwise: bool) -> Option<u16> {
         self.hid_command(
-            ApiCommand::DynamicKeymapGetEncoder,
+            ViaCommandId::DynamicKeymapGetEncoder,
             vec![layer, id, is_clockwise as u8],
         )
         .map(|val| utils::shift_to_16_bit(val[4], val[5]))
     }
 
+    /// Sets the encoder value for the given layer, id, direction, and keycode.
     pub fn set_encoder_value(
         &self,
         layer: Layer,
@@ -319,135 +310,423 @@ impl KeyboardApi {
             keycode_bytes.0,
             keycode_bytes.1,
         ];
-        self.hid_command(ApiCommand::DynamicKeymapSetEncoder, bytes)
+        self.hid_command(ViaCommandId::DynamicKeymapSetEncoder, bytes)
             .map(|_| ())
     }
 
+    /// Get a custom menu value. This is a generic function that can be used to get any value specific to arbitrary keyboard functionalities.
     pub fn get_custom_menu_value(&self, command_bytes: Vec<u8>) -> Option<Vec<u8>> {
         let command_length = command_bytes.len();
-        self.hid_command(ApiCommand::CustomMenuGetValue, command_bytes)
+        self.hid_command(ViaCommandId::CustomMenuGetValue, command_bytes)
             .map(|val| val[0..command_length].to_vec())
     }
 
+    /// Set a custom menu value. This is a generic function that can be used to set any value specific to arbitrary keyboard functionalities.
     pub fn set_custom_menu_value(&self, args: Vec<u8>) -> Option<()> {
-        self.hid_command(ApiCommand::CustomMenuSetValue, args)
+        self.hid_command(ViaCommandId::CustomMenuSetValue, args)
             .map(|_| ())
     }
 
-    pub fn commit_custom_menu(&self, channel: u8) -> Option<()> {
+    /// Saves the custom menu values for the given channel id.
+    pub fn save_custom_menu(&self, channel: u8) -> Option<()> {
         let bytes = vec![channel];
-        self.hid_command(ApiCommand::CustomMenuSave, bytes)
+        self.hid_command(ViaCommandId::CustomMenuSave, bytes)
             .map(|_| ())
     }
 
-    pub fn get_per_key_rgb_matrix(&self, led_index_mapping: Vec<u8>) -> Option<Vec<Vec<u8>>> {
-        let mut res = Vec::new();
-        for led_index in led_index_mapping {
-            let mut bytes = PER_KEY_RGB_CHANNEL_COMMAND.to_vec();
-            bytes.extend(vec![led_index, 1]);
-            match self.hid_command(ApiCommand::CustomMenuGetValue, bytes) {
-                Some(val) => res.push(val[5..7].to_vec()),
-                None => return None,
-            }
-        }
-        Some(res)
+    /// Gets the backlight brightness.
+    pub fn get_backlight_brightness(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkBacklightChannel as u8,
+                ViaQmkBacklightValue::IdQmkBacklightBrightness as u8,
+            ],
+        )
+        .map(|val| val[3])
     }
 
-    pub fn set_per_key_rgb_matrix(&self, index: u8, hue: u8, sat: u8) -> Option<()> {
-        let mut bytes = PER_KEY_RGB_CHANNEL_COMMAND.to_vec();
-        bytes.extend(vec![index, 1, hue, sat]);
-        self.hid_command(ApiCommand::CustomMenuSetValue, bytes)
-            .map(|_| ())
+    /// Sets the backlight brightness.
+    pub fn set_backlight_brightness(&self, brightness: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkBacklightChannel as u8,
+                ViaQmkBacklightValue::IdQmkBacklightBrightness as u8,
+                brightness,
+            ],
+        )
+        .map(|_| ())
     }
 
-    pub fn get_backlight_value(
-        &self,
-        command: ApiCommand,
-        result_length: usize,
-    ) -> Option<Vec<u8>> {
-        self.hid_command(ApiCommand::CustomMenuGetValue, vec![command as u8])
-            .map(|val| val[2..result_length + 2].to_vec())
+    /// Gets the backlight effect.
+    pub fn get_backlight_effect(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkBacklightChannel as u8,
+                ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
+            ],
+        )
+        .map(|val| val[2])
     }
 
-    pub fn set_backlight_value(&self, command: ApiCommand, rest: Vec<u8>) -> Option<()> {
-        let mut bytes: Vec<u8> = vec![command as u8];
-        bytes.extend(rest);
-        self.hid_command(ApiCommand::CustomMenuSetValue, bytes)
-            .map(|_| ())
+    /// Sets the backlight effect.
+    pub fn set_backlight_effect(&self, effect: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkBacklightChannel as u8,
+                ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
+                effect,
+            ],
+        )
+        .map(|_| ())
     }
 
-    pub fn get_brightness(&self) -> Option<u8> {
-        self.hid_command(ApiCommand::CustomMenuGetValue, vec![BACKLIGHT_BRIGHTNESS])
-            .map(|val| val[2])
+    /// Gets the RGB light brightness.
+    pub fn get_rgblight_brightness(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightBrightness as u8,
+            ],
+        )
+        .map(|val| val[3])
     }
 
-    // TODO: Add set brightness function
-
-    pub fn get_color(&self, color_number: u8) -> Option<(u8, u8)> {
-        let bytes = vec![if color_number == 1 {
-            BACKLIGHT_COLOR_1
-        } else {
-            BACKLIGHT_COLOR_2
-        }];
-        self.hid_command(ApiCommand::CustomMenuGetValue, bytes)
-            .map(|val| (val[2], val[3]))
+    /// Sets the RGB light brightness.
+    pub fn set_rgblight_brightness(&self, brightness: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightBrightness as u8,
+                brightness,
+            ],
+        )
+        .map(|_| ())
     }
 
-    pub fn set_color(&self, color_number: u8, hue: u8, sat: u8) -> Option<()> {
-        let bytes = vec![
-            if color_number == 1 {
-                BACKLIGHT_COLOR_1
-            } else {
-                BACKLIGHT_COLOR_2
-            },
-            hue,
-            sat,
-        ];
-        self.hid_command(ApiCommand::CustomMenuSetValue, bytes)
-            .map(|_| ())
+    /// Gets the RGB light effect.
+    pub fn get_rgblight_effect(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
+            ],
+        )
+        .map(|val| val[2])
     }
 
-    pub fn get_custom_color(&self, color_number: u8) -> Option<(u8, u8)> {
-        let bytes = vec![BACKLIGHT_CUSTOM_COLOR, color_number];
-        self.hid_command(ApiCommand::CustomMenuGetValue, bytes)
-            .map(|val| (val[3], val[4]))
+    /// Sets the RGB light effect.
+    pub fn set_rgblight_effect(&self, effect: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
+                effect,
+            ],
+        )
+        .map(|_| ())
     }
 
-    pub fn set_custom_color(&self, color_number: u8, hue: u8, sat: u8) -> Option<()> {
-        let bytes = vec![BACKLIGHT_CUSTOM_COLOR, color_number, hue, sat];
-        self.hid_command(ApiCommand::CustomMenuSetValue, bytes)
-            .map(|_| ())
+    /// Gets the RGB light effect speed.
+    pub fn get_rgblight_effect_speed(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
+            ],
+        )
+        .map(|val| val[2])
     }
 
-    pub fn get_rgb_mode(&self) -> Option<u8> {
-        self.hid_command(ApiCommand::CustomMenuGetValue, vec![BACKLIGHT_EFFECT])
-            .map(|val| val[2])
+    /// Sets the RGB light effect speed.
+    pub fn set_rgblight_effect_speed(&self, speed: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
+                speed,
+            ],
+        )
+        .map(|_| ())
     }
 
-    pub fn set_rgb_mode(&self, effect: u8) -> Option<()> {
-        let bytes = vec![BACKLIGHT_EFFECT, effect];
-        self.hid_command(ApiCommand::CustomMenuSetValue, bytes)
-            .map(|_| ())
+    /// Gets the RGB light color.
+    pub fn get_rgblight_color(&self) -> Option<(u8, u8)> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightColor as u8,
+            ],
+        )
+        .map(|val| (val[3], val[4]))
     }
 
+    /// Sets the RGB light color.
+    pub fn set_rgblight_color(&self, hue: u8, sat: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgblightChannel as u8,
+                ViaQmkRgblightValue::IdQmkRgblightColor as u8,
+                hue,
+                sat,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the RGB matrix brightness.
+    pub fn get_rgb_matrix_brightness(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixBrightness as u8,
+            ],
+        )
+        .map(|val| val[3])
+    }
+
+    /// Sets the RGB matrix brightness.
+    pub fn set_rgb_matrix_brightness(&self, brightness: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixBrightness as u8,
+                brightness,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the RGB matrix effect.
+    pub fn get_rgb_matrix_effect(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixEffect as u8,
+            ],
+        )
+        .map(|val| val[2])
+    }
+
+    /// Sets the RGB matrix effect.
+    pub fn set_rgb_matrix_effect(&self, effect: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixEffect as u8,
+                effect,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the RGB matrix effect speed.
+    pub fn get_rgb_matrix_effect_speed(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixEffectSpeed as u8,
+            ],
+        )
+        .map(|val| val[2])
+    }
+
+    /// Sets the RGB matrix effect speed.
+    pub fn set_rgb_matrix_effect_speed(&self, speed: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixEffectSpeed as u8,
+                speed,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the RGB matrix color.
+    pub fn get_rgb_matrix_color(&self) -> Option<(u8, u8)> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixColor as u8,
+            ],
+        )
+        .map(|val| (val[3], val[4]))
+    }
+
+    /// Sets the RGB matrix color.
+    pub fn set_rgb_matrix_color(&self, hue: u8, sat: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkRgbMatrixChannel as u8,
+                ViaQmkRgbMatrixValue::IdQmkRgbMatrixColor as u8,
+                hue,
+                sat,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the LED matrix brightness.
+    pub fn get_led_matrix_brightness(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkLedMatrixChannel as u8,
+                ViaQmkLedMatrixValue::IdQmkLedMatrixBrightness as u8,
+            ],
+        )
+        .map(|val| val[3])
+    }
+
+    /// Sets the LED matrix brightness.
+    pub fn set_led_matrix_brightness(&self, brightness: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkLedMatrixChannel as u8,
+                ViaQmkLedMatrixValue::IdQmkLedMatrixBrightness as u8,
+                brightness,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the LED matrix effect.
+    pub fn get_led_matrix_effect(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkLedMatrixChannel as u8,
+                ViaQmkLedMatrixValue::IdQmkLedMatrixEffect as u8,
+            ],
+        )
+        .map(|val| val[2])
+    }
+
+    /// Sets the LED matrix effect.
+    pub fn set_led_matrix_effect(&self, effect: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkLedMatrixChannel as u8,
+                ViaQmkLedMatrixValue::IdQmkLedMatrixEffect as u8,
+                effect,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Gets the LED matrix effect speed.
+    pub fn get_led_matrix_effect_speed(&self) -> Option<u8> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkLedMatrixChannel as u8,
+                ViaQmkLedMatrixValue::IdQmkLedMatrixEffectSpeed as u8,
+            ],
+        )
+        .map(|val| val[2])
+    }
+
+    /// Sets the LED matrix effect speed.
+    pub fn set_led_matrix_effect_speed(&self, speed: u8) -> Option<()> {
+        self.hid_command(
+            ViaCommandId::CustomMenuSetValue,
+            vec![
+                ViaChannelId::IdQmkLedMatrixChannel as u8,
+                ViaQmkLedMatrixValue::IdQmkLedMatrixEffectSpeed as u8,
+                speed,
+            ],
+        )
+        .map(|_| ())
+    }
+
+    /// Saves the lighting settings.
     pub fn save_lighting(&self) -> Option<()> {
-        let bytes = vec![];
-        self.hid_command(ApiCommand::CustomMenuSave, bytes)
+        self.hid_command(ViaCommandId::CustomMenuSave, vec![])
             .map(|_| ())
     }
 
+    /// Gets the audio enabled state.
+    pub fn get_audio_enabled(&self) -> Option<bool> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkAudioChannel as u8,
+                ViaQmkAudioValue::IdQmkAudioEnable as u8,
+            ],
+        )
+        .map(|val| val[3] == 1)
+    }
+
+    /// Sets the audio enabled state.
+    pub fn set_audio_enabled(&self, enabled: bool) -> Option<()> {
+        let bytes = vec![
+            ViaChannelId::IdQmkAudioChannel as u8,
+            ViaQmkAudioValue::IdQmkAudioEnable as u8,
+            enabled as u8,
+        ];
+        self.hid_command(ViaCommandId::CustomMenuSetValue, bytes)
+            .map(|_| ())
+    }
+
+    /// Gets the audio clicky enabled state.
+    pub fn get_audio_clicky_enabled(&self) -> Option<bool> {
+        self.hid_command(
+            ViaCommandId::CustomMenuGetValue,
+            vec![
+                ViaChannelId::IdQmkAudioChannel as u8,
+                ViaQmkAudioValue::IdQmkAudioClickyEnable as u8,
+            ],
+        )
+        .map(|val| val[3] == 1)
+    }
+
+    /// Sets the audio clicky enabled state.
+    pub fn set_audio_clicky_enabled(&self, enabled: bool) -> Option<()> {
+        let bytes = vec![
+            ViaChannelId::IdQmkAudioChannel as u8,
+            ViaQmkAudioValue::IdQmkAudioClickyEnable as u8,
+            enabled as u8,
+        ];
+        self.hid_command(ViaCommandId::CustomMenuSetValue, bytes)
+            .map(|_| ())
+    }
+
+    /// Gets the macro count.
     pub fn get_macro_count(&self) -> Option<u8> {
         let bytes = vec![];
-        self.hid_command(ApiCommand::DynamicKeymapMacroGetCount, bytes)
+        self.hid_command(ViaCommandId::DynamicKeymapMacroGetCount, bytes)
             .map(|val| val[1])
     }
 
     fn get_macro_buffer_size(&self) -> Option<u16> {
         let bytes = vec![];
-        self.hid_command(ApiCommand::DynamicKeymapMacroGetBufferSize, bytes)
+        self.hid_command(ViaCommandId::DynamicKeymapMacroGetBufferSize, bytes)
             .map(|val| utils::shift_to_16_bit(val[1], val[2]))
     }
 
+    /// Gets the macro bytes. All macros are separated by 0x00.
     pub fn get_macro_bytes(&self) -> Option<Vec<u8>> {
         let macro_buffer_size = self.get_macro_buffer_size()? as usize;
         let mut all_bytes = Vec::new();
@@ -455,7 +734,7 @@ impl KeyboardApi {
             let offset_bytes = utils::shift_from_16_bit(offset as u16);
             let remaining_bytes = macro_buffer_size - offset;
             let bytes = vec![offset_bytes.0, offset_bytes.1, DATA_BUFFER_SIZE as u8];
-            match self.hid_command(ApiCommand::DynamicKeymapMacroGetBuffer, bytes) {
+            match self.hid_command(ViaCommandId::DynamicKeymapMacroGetBuffer, bytes) {
                 Some(val) => {
                     if remaining_bytes < DATA_BUFFER_SIZE {
                         all_bytes.extend(val[4..(4 + remaining_bytes)].to_vec())
@@ -469,6 +748,7 @@ impl KeyboardApi {
         Some(all_bytes)
     }
 
+    /// Sets the macro bytes.
     pub fn set_macro_bytes(&self, data: Vec<u8>) -> Option<()> {
         let macro_buffer_size = self.get_macro_buffer_size()?;
         let size = data.len();
@@ -483,7 +763,7 @@ impl KeyboardApi {
 
         // Set last byte in buffer to non-zero (0xFF) to indicate write-in-progress
         self.hid_command(
-            ApiCommand::DynamicKeymapMacroSetBuffer,
+            ViaCommandId::DynamicKeymapMacroSetBuffer,
             vec![last_offset_bytes.0, last_offset_bytes.1, 1, 0xff],
         )?;
 
@@ -493,12 +773,12 @@ impl KeyboardApi {
             let buffer = data[offset..end].to_vec();
             let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer.len() as u8];
             bytes.extend(buffer);
-            self.hid_command(ApiCommand::DynamicKeymapMacroSetBuffer, bytes)?;
+            self.hid_command(ViaCommandId::DynamicKeymapMacroSetBuffer, bytes)?;
         }
 
         // Set last byte in buffer to zero to indicate write finished
         self.hid_command(
-            ApiCommand::DynamicKeymapMacroSetBuffer,
+            ViaCommandId::DynamicKeymapMacroSetBuffer,
             vec![last_offset_bytes.0, last_offset_bytes.1, 1, 0x00],
         )?;
 
@@ -508,18 +788,21 @@ impl KeyboardApi {
     /// Resets all saved macros.
     pub fn reset_macros(&self) -> Option<()> {
         let bytes = vec![];
-        self.hid_command(ApiCommand::DynamicKeymapMacroReset, bytes)
+        self.hid_command(ViaCommandId::DynamicKeymapMacroReset, bytes)
             .map(|_| ())
     }
 
+    /// Resets the EEPROM, clearing all settings like keymaps and macros.
     pub fn reset_eeprom(&self) -> Option<()> {
         let bytes = vec![];
-        self.hid_command(ApiCommand::EepromReset, bytes).map(|_| ())
+        self.hid_command(ViaCommandId::EepromReset, bytes)
+            .map(|_| ())
     }
 
+    /// Jumps to the bootloader.
     pub fn jump_to_bootloader(&self) -> Option<()> {
         let bytes = vec![];
-        self.hid_command(ApiCommand::BootloaderJump, bytes)
+        self.hid_command(ViaCommandId::BootloaderJump, bytes)
             .map(|_| ())
     }
 }

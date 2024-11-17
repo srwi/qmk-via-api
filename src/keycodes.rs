@@ -3,6 +3,7 @@ use strum_macros::AsRefStr;
 
 #[derive(Debug, Clone, Eq, PartialEq, TryFromPrimitive, AsRefStr)]
 #[repr(u16)]
+#[allow(non_camel_case_types)]
 pub enum Keycode {
     KC_NO = 0x0000,
     KC_TRANSPARENT = 0x0001,

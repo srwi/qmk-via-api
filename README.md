@@ -1,6 +1,3 @@
-> [!WARNING]  
-> `qmk-via-api` is in early development and partly untested. Use at your own risk!
-
 # qmk-via-api
 
 [![Version](https://img.shields.io/crates/v/qmk-via-api.svg)](https://crates.io/crates/qmk-via-api)
@@ -62,4 +59,4 @@ if __name__ == "__main__":
 
 # License & Attribution
 
-The Rust code in this project is based on code from [the VIA project](https://github.com/the-via/app), which is licensed under the GNU General Public License v3.0.
+Parts of this project are based on code from [the VIA project](https://github.com/the-via/app), which is licensed under the GNU General Public License v3.0.

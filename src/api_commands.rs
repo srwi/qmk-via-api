@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 
 #[pyclass]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ApiCommand {
+pub enum ViaCommandId {
     GetProtocolVersion = 0x01,
     GetKeyboardValue = 0x02,
     SetKeyboardValue = 0x03,
@@ -24,4 +24,55 @@ pub enum ApiCommand {
     DynamicKeymapSetBuffer = 0x13,
     DynamicKeymapGetEncoder = 0x14,
     DynamicKeymapSetEncoder = 0x15,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaChannelId {
+    IdCustomChannel = 0,
+    IdQmkBacklightChannel = 1,
+    IdQmkRgblightChannel = 2,
+    IdQmkRgbMatrixChannel = 3,
+    IdQmkAudioChannel = 4,
+    IdQmkLedMatrixChannel = 5,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaQmkBacklightValue {
+    IdQmkBacklightBrightness = 1,
+    IdQmkBacklightEffect = 2,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaQmkRgblightValue {
+    IdQmkRgblightBrightness = 1,
+    IdQmkRgblightEffect = 2,
+    IdQmkRgblightEffectSpeed = 3,
+    IdQmkRgblightColor = 4,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaQmkRgbMatrixValue {
+    IdQmkRgbMatrixBrightness = 1,
+    IdQmkRgbMatrixEffect = 2,
+    IdQmkRgbMatrixEffectSpeed = 3,
+    IdQmkRgbMatrixColor = 4,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaQmkLedMatrixValue {
+    IdQmkLedMatrixBrightness = 1,
+    IdQmkLedMatrixEffect = 2,
+    IdQmkLedMatrixEffectSpeed = 3,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaQmkAudioValue {
+    IdQmkAudioEnable = 1,
+    IdQmkAudioClickyEnable = 2,
 }
