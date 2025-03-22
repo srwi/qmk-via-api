@@ -368,7 +368,7 @@ impl KeyboardApi {
                 ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the backlight effect.
@@ -418,7 +418,7 @@ impl KeyboardApi {
                 ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the RGB light effect.
@@ -443,7 +443,7 @@ impl KeyboardApi {
                 ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the RGB light effect speed.
@@ -519,7 +519,7 @@ impl KeyboardApi {
                 ViaQmkRgbMatrixValue::IdQmkRgbMatrixEffect as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the RGB matrix effect.
@@ -544,7 +544,7 @@ impl KeyboardApi {
                 ViaQmkRgbMatrixValue::IdQmkRgbMatrixEffectSpeed as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the RGB matrix effect speed.
@@ -620,7 +620,7 @@ impl KeyboardApi {
                 ViaQmkLedMatrixValue::IdQmkLedMatrixEffect as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the LED matrix effect.
@@ -645,7 +645,7 @@ impl KeyboardApi {
                 ViaQmkLedMatrixValue::IdQmkLedMatrixEffectSpeed as u8,
             ],
         )
-        .map(|val| val[2])
+        .map(|val| val[3])
     }
 
     /// Sets the LED matrix effect speed.

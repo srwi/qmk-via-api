@@ -5,7 +5,7 @@ description = "VIA api implementation for QMK-based keyboards"
 authors = ["Stephan Rumswinkel"]
 repository = "https://github.com/srwi/qmk-via-api"
 readme = "README.md"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 [lib]
