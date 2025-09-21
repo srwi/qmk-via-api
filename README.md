@@ -21,16 +21,16 @@ cargo add qmk-via-api
 Usage example:
 
 ```rust
-use qmk_via_api::api::KeyboardApi;
-
-const PRODUCT_VID: u16 = 0x594D;
-const PRODUCT_PID: u16 = 0x604D;
-const USAGE_PAGE: u16 = 0xff60;
+use qmk_via_api::{api::KeyboardApi, scan::scan_keyboards};
 
 fn main() {
-    let api = KeyboardApi::new(PRODUCT_VID, PRODUCT_PID, USAGE_PAGE).unwrap();
-    println!("Protocol version: {:?}", api.get_protocol_version());
-    println!("Layer count: {:?}", api.get_layer_count());
+    if let Some(dev) = scan_keyboards().first() {
+        let api = KeyboardApi::new(dev.vendor_id, dev.product_id, dev.usage_page).unwrap();
+        println!("Protocol version: {:?}", api.get_protocol_version());
+        println!("Layer count: {:?}", api.get_layer_count());
+    } else {
+        println!("No devices found");
+    }
 }
 ```
 
@@ -46,15 +46,16 @@ Usage example:
 
 ```python
 import qmk_via_api
+from qmk_via_api import scan_keyboards
 
-PRODUCT_VID = 0x594D
-PRODUCT_PID = 0x604D
-USAGE_PAGE = 0xff60
-
-if __name__ == "__main__":
-    api = qmk_via_api.KeyboardApi(PRODUCT_VID, PRODUCT_PID, USAGE_PAGE)
+devices = scan_keyboards()
+if devices:
+    dev = devices[0]
+    api = qmk_via_api.KeyboardApi(dev.vendor_id, dev.product_id, dev.usage_page)
     print(f"Protocol version {api.get_protocol_version()}")
     print(f"Layers count: {api.get_layer_count()}")
+else:
+    print("No devices found")
 ```
 
 # License & Attribution

@@ -5,7 +5,7 @@ description = "VIA api implementation for QMK-based keyboards"
 authors = ["Stephan Rumswinkel"]
 repository = "https://github.com/srwi/qmk-via-api"
 readme = "README.md"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 
 [lib]
@@ -13,12 +13,12 @@ name = "qmk_via_api"
 crate-type = ["cdylib", "lib"]  # "cdylib" is necessary to produce a shared library for Python to import from.
 
 [dependencies]
-hidapi = "2.6.1"
-itertools = "0.12.1"
-num_enum = "0.7.3"
-strum = "0.26.3"
-strum_macros = "0.26.3"
+hidapi = "2.6.3"
+itertools = "0.14.0"
+num_enum = "0.7.4"
+strum = "0.27.2"
+strum_macros = "0.27.2"
 
 [dependencies.pyo3]
-version = "0.21.0"
+version = "0.26.0"
 features = ["abi3-py38"]  # "abi3-py38" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.8.

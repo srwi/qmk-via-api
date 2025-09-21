@@ -53,7 +53,7 @@ impl FromStr for KeyboardValue {
     }
 }
 
-#[pyclass]
+#[pyclass(unsendable)]
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
 }
