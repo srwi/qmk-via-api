@@ -4,9 +4,12 @@ use crate::api_commands::{
 };
 use crate::utils;
 use hidapi::HidApi;
-use pyo3::prelude::*;
 use std::str::FromStr;
 use std::vec;
+use core::result::Result;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 const COMMAND_START: u8 = 0x00;
 
@@ -21,14 +24,14 @@ pub type Layer = u8;
 pub type Row = u8;
 pub type Column = u8;
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug)]
 pub struct MatrixInfo {
     pub rows: u8,
     pub cols: u8,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug)]
 pub enum KeyboardValue {
     Uptime = 0x01,
@@ -53,18 +56,56 @@ impl FromStr for KeyboardValue {
     }
 }
 
-#[pyclass(unsendable)]
+#[cfg_attr(feature = "python", pyclass(unsendable))]
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
 }
 
+#[cfg(feature = "python")]
 #[pymethods]
 impl KeyboardApi {
     #[new]
-    pub fn new(vid: u16, pid: u16, usage_page: u16) -> PyResult<Self> {
-        let api = HidApi::new().map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Error: {}", e))
-        })?;
+    pub fn py_new(vid: u16, pid: u16, usage_page: u16) -> Result<Self, Error> {
+        KeyboardApi::new(vid, pid, usage_page)
+    }
+}
+
+#[cfg(feature = "python")]
+impl From<Error> for PyErr {
+    fn from(err: Error) -> Self {
+        PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err.0)
+    }
+}
+
+pub struct Error(pub String);
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl From<String> for Error {
+    fn from(err: String) -> Self {
+        Error(err)
+    }
+}
+
+impl From<&str> for Error {
+    fn from(err: &str) -> Self {
+        Error(err.to_string())
+    }
+}
+
+// impl From<Error> for String {
+//     fn from(error: Error) -> Self {
+//         error.0
+//     }
+// }
+
+impl KeyboardApi {
+    pub fn new(vid: u16, pid: u16, usage_page: u16) -> Result<KeyboardApi, Error> {
+        let api = HidApi::new().map_err(|e| format!("Error: {e}"))?;
 
         let device = api
             .device_list()
@@ -73,16 +114,16 @@ impl KeyboardApi {
                     && device.product_id() == pid
                     && device.usage_page() == usage_page
             })
-            .ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Could not find keyboard.")
-            })?
+            .ok_or("Could not find keyboard.")?
             .open_device(&api)
-            .map_err(|_| {
-                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Could not open HID device.")
-            })?;
+            .map_err(|_| "Could not open HID device.")?;
 
         Ok(KeyboardApi { device })
     }
+}
+
+#[cfg_attr(feature = "python", pymethods)]
+impl KeyboardApi {
 
     /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
     pub fn hid_command(&self, command: ViaCommandId, bytes: Vec<u8>) -> Option<Vec<u8>> {
@@ -188,23 +229,21 @@ impl KeyboardApi {
     fn fast_read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Option<Vec<u16>> {
         const MAX_KEYCODES_PARTIAL: usize = 14;
         let length = matrix_info.rows as usize * matrix_info.cols as usize;
-        let buffer_list = vec![0; length.div_ceil(MAX_KEYCODES_PARTIAL) as usize];
+        let buffer_len = length.div_ceil(MAX_KEYCODES_PARTIAL);
         let mut remaining = length;
         let mut result = Vec::new();
-        for _ in 0..buffer_list.len() {
+        for _ in 0..buffer_len {
             if remaining < MAX_KEYCODES_PARTIAL {
-                self.get_keymap_buffer(
+                if let Some(val) = self.get_keymap_buffer(
                     layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
                     (remaining * 2) as u8,
-                )
-                .map(|val| result.extend(val));
+                ) { result.extend(val) }
                 remaining = 0;
             } else {
-                self.get_keymap_buffer(
+                if let Some(val) = self.get_keymap_buffer(
                     layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
                     (MAX_KEYCODES_PARTIAL * 2) as u8,
-                )
-                .map(|val| result.extend(val));
+                ) { result.extend(val) }
                 remaining -= MAX_KEYCODES_PARTIAL;
             }
         }
@@ -217,7 +256,7 @@ impl KeyboardApi {
         for i in 0..length {
             let row = (i as u16 / matrix_info.cols as u16) as u8;
             let col = (i as u16 % matrix_info.cols as u16) as u8;
-            self.get_key(layer, row, col).map(|val| res.push(val));
+            if let Some(val) = self.get_key(layer, row, col) { res.push(val) }
         }
         Some(res)
     }
@@ -238,8 +277,7 @@ impl KeyboardApi {
             for (key_idx, keycode) in layer.iter().enumerate() {
                 let row = (key_idx as u16 / matrix_info.cols as u16) as u8;
                 let col = (key_idx as u16 % matrix_info.cols as u16) as u8;
-                self.set_key(layer_idx as u8, row, col, *keycode)
-                    .map(|_| ());
+                self.set_key(layer_idx as u8, row, col, *keycode);
             }
         }
         Some(())
@@ -257,8 +295,7 @@ impl KeyboardApi {
             let buffer = shifted_data[offset..end].to_vec();
             let mut bytes = vec![offset_bytes.0, offset_bytes.1, buffer.len() as u8];
             bytes.extend(buffer);
-            self.hid_command(ViaCommandId::DynamicKeymapSetBuffer, bytes)
-                .map(|_| ());
+            self.hid_command(ViaCommandId::DynamicKeymapSetBuffer, bytes);
         }
         Some(())
     }

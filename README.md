@@ -34,6 +34,15 @@ fn main() {
 }
 ```
 
+### Disable Python Bindings
+
+The `python` feature flag is enabled by default. In projects that don't interoperate with Python, the Python bindings can be disabled by turning off default features. In `Cargo.toml`:
+
+```toml
+[dependencies]
+qmk-via-api = { version = "0.3.0", default-features = false }
+```
+
 ## Python
 
 Install with pip:
