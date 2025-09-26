@@ -97,12 +97,6 @@ impl From<&str> for Error {
     }
 }
 
-// impl From<Error> for String {
-//     fn from(error: Error) -> Self {
-//         error.0
-//     }
-// }
-
 impl KeyboardApi {
     pub fn new(vid: u16, pid: u16, usage_page: u16) -> Result<KeyboardApi, Error> {
         let api = HidApi::new().map_err(|e| format!("Error: {e}"))?;
