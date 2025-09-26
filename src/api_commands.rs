@@ -1,6 +1,7 @@
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaCommandId {
     GetProtocolVersion = 0x01,
@@ -26,7 +27,7 @@ pub enum ViaCommandId {
     DynamicKeymapSetEncoder = 0x15,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaChannelId {
     IdCustomChannel = 0,
@@ -37,14 +38,14 @@ pub enum ViaChannelId {
     IdQmkLedMatrixChannel = 5,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkBacklightValue {
     IdQmkBacklightBrightness = 1,
     IdQmkBacklightEffect = 2,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkRgblightValue {
     IdQmkRgblightBrightness = 1,
@@ -53,7 +54,7 @@ pub enum ViaQmkRgblightValue {
     IdQmkRgblightColor = 4,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkRgbMatrixValue {
     IdQmkRgbMatrixBrightness = 1,
@@ -62,7 +63,7 @@ pub enum ViaQmkRgbMatrixValue {
     IdQmkRgbMatrixColor = 4,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkLedMatrixValue {
     IdQmkLedMatrixBrightness = 1,
@@ -70,7 +71,7 @@ pub enum ViaQmkLedMatrixValue {
     IdQmkLedMatrixEffectSpeed = 3,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkAudioValue {
     IdQmkAudioEnable = 1,
