@@ -3,10 +3,10 @@ use crate::api_commands::{
     ViaQmkRgbMatrixValue, ViaQmkRgblightValue,
 };
 use crate::utils;
+use core::result::Result;
 use hidapi::HidApi;
 use std::str::FromStr;
 use std::vec;
-use core::result::Result;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -77,6 +77,7 @@ impl From<Error> for PyErr {
     }
 }
 
+#[derive(Debug)]
 pub struct Error(pub String);
 
 impl std::fmt::Display for Error {
@@ -118,7 +119,6 @@ impl KeyboardApi {
 
 #[cfg_attr(feature = "python", pymethods)]
 impl KeyboardApi {
-
     /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
     pub fn hid_command(&self, command: ViaCommandId, bytes: Vec<u8>) -> Option<Vec<u8>> {
         let mut command_bytes: Vec<u8> = vec![command as u8];
@@ -231,13 +231,17 @@ impl KeyboardApi {
                 if let Some(val) = self.get_keymap_buffer(
                     layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
                     (remaining * 2) as u8,
-                ) { result.extend(val) }
+                ) {
+                    result.extend(val)
+                }
                 remaining = 0;
             } else {
                 if let Some(val) = self.get_keymap_buffer(
                     layer as u16 * length as u16 * 2 + 2 * (length - remaining) as u16,
                     (MAX_KEYCODES_PARTIAL * 2) as u8,
-                ) { result.extend(val) }
+                ) {
+                    result.extend(val)
+                }
                 remaining -= MAX_KEYCODES_PARTIAL;
             }
         }
@@ -250,7 +254,9 @@ impl KeyboardApi {
         for i in 0..length {
             let row = (i as u16 / matrix_info.cols as u16) as u8;
             let col = (i as u16 % matrix_info.cols as u16) as u8;
-            if let Some(val) = self.get_key(layer, row, col) { res.push(val) }
+            if let Some(val) = self.get_key(layer, row, col) {
+                res.push(val)
+            }
         }
         Some(res)
     }
