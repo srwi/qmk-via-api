@@ -27,3 +27,6 @@ optional = true
 [features]
 default = ["python"]
 python = ["dep:pyo3"]
+
+[lints.clippy]
+uninlined_format_args = "allow"
