@@ -80,7 +80,11 @@ impl KeyboardApi {
                     && device.product_id() == pid
                     && device.usage_page() == usage_page
             })
-            .ok_or(Error::NoSuchKeyboard { vid, pid, usage_page })?
+            .ok_or(Error::NoSuchKeyboard {
+                vid,
+                pid,
+                usage_page,
+            })?
             .open_device(&api)?;
 
         Ok(KeyboardApi { device })

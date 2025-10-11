@@ -33,15 +33,13 @@ pub fn scan_keyboards() -> Vec<KeyboardDeviceInfo> {
 
     api.device_list()
         .filter(|d| d.usage_page() == VIA_USAGE_PAGE)
-        .map(|d| {
-            KeyboardDeviceInfo {
-                vendor_id: d.vendor_id(),
-                product_id: d.product_id(),
-                usage_page: d.usage_page(),
-                manufacturer: d.manufacturer_string().map(|s| s.to_string()),
-                product: d.product_string().map(|s| s.to_string()),
-                serial_number: d.serial_number().map(|s| s.to_string()),
-            }
+        .map(|d| KeyboardDeviceInfo {
+            vendor_id: d.vendor_id(),
+            product_id: d.product_id(),
+            usage_page: d.usage_page(),
+            manufacturer: d.manufacturer_string().map(|s| s.to_string()),
+            product: d.product_string().map(|s| s.to_string()),
+            serial_number: d.serial_number().map(|s| s.to_string()),
         })
         .collect()
 }
