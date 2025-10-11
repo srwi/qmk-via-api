@@ -1,11 +1,14 @@
 pub mod api;
 pub mod api_commands;
+pub mod error;
 pub mod keycodes;
 pub mod scan;
 pub mod utils;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+
+pub use error::*;
 
 #[cfg(feature = "python")]
 #[pymodule]
