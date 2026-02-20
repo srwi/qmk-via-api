@@ -2,6 +2,7 @@ use crate::api_commands::{
     ViaChannelId, ViaCommandId, ViaQmkAudioValue, ViaQmkBacklightValue, ViaQmkLedMatrixValue,
     ViaQmkRgbMatrixValue, ViaQmkRgblightValue,
 };
+use crate::scan::KeyboardDeviceInfo;
 use crate::{utils, Error, Result};
 use hidapi::HidApi;
 use std::str::FromStr;
@@ -9,6 +10,8 @@ use std::vec;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
+use pyo3::types::PyType;
 
 const COMMAND_START: u8 = 0x00;
 
@@ -23,7 +26,7 @@ pub type Layer = u8;
 pub type Row = u8;
 pub type Column = u8;
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
 #[derive(Clone, Copy, Debug)]
 pub struct MatrixInfo {
     pub rows: u8,
@@ -67,6 +70,12 @@ impl KeyboardApi {
     pub fn py_new(vid: u16, pid: u16, usage_page: u16) -> Result<Self> {
         KeyboardApi::new(vid, pid, usage_page)
     }
+
+    #[classmethod]
+    #[pyo3(name = "from_device")]
+    pub fn py_from_device(_cls: &Bound<'_, PyType>, device: &KeyboardDeviceInfo) -> Result<Self> {
+        KeyboardApi::from_device(device)
+    }
 }
 
 impl KeyboardApi {
@@ -88,6 +97,10 @@ impl KeyboardApi {
             .open_device(&api)?;
 
         Ok(KeyboardApi { device })
+    }
+
+    pub fn from_device(device: &KeyboardDeviceInfo) -> Result<KeyboardApi> {
+        Self::new(device.vendor_id, device.product_id, device.usage_page)
     }
 }
 

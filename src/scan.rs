@@ -1,3 +1,4 @@
+use crate::Result;
 use hidapi::HidApi;
 
 #[cfg(feature = "python")]
@@ -25,13 +26,11 @@ pub struct KeyboardDeviceInfo {
 
 /// Scan for connected VIA keyboards.
 #[cfg_attr(feature = "python", pyfunction)]
-pub fn scan_keyboards() -> Vec<KeyboardDeviceInfo> {
-    let api = match HidApi::new() {
-        Ok(a) => a,
-        Err(_) => return Vec::new(),
-    };
+pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
+    let api = HidApi::new()?;
 
-    api.device_list()
+    Ok(api
+        .device_list()
         .filter(|d| d.usage_page() == VIA_USAGE_PAGE)
         .map(|d| KeyboardDeviceInfo {
             vendor_id: d.vendor_id(),
@@ -41,5 +40,5 @@ pub fn scan_keyboards() -> Vec<KeyboardDeviceInfo> {
             product: d.product_string().map(|s| s.to_string()),
             serial_number: d.serial_number().map(|s| s.to_string()),
         })
-        .collect()
+        .collect())
 }

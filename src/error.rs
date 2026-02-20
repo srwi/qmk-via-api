@@ -22,6 +22,7 @@ pub enum Error {
         actual: usize,
         context: &'static str,
     },
+    InvalidArgument(&'static str),
 }
 
 impl Error {
@@ -60,6 +61,7 @@ impl std::fmt::Display for Error {
                 "unexpected command response for command {:?}",
                 cmd
             )),
+            Error::InvalidArgument(arg) => f.write_fmt(format_args!("invalid argument: {}", arg)),
             _ => Debug::fmt(&self, f),
         }
     }
@@ -74,6 +76,42 @@ impl From<HidError> for Error {
 #[cfg(feature = "python")]
 impl From<Error> for pyo3::PyErr {
     fn from(err: Error) -> Self {
-        pyo3::PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(err.to_string())
+        match err {
+            Error::Hid(msg) => pyo3::PyErr::new::<crate::HidError, _>(msg),
+            Error::NoSuchKeyboard {
+                vid,
+                pid,
+                usage_page,
+            } => pyo3::PyErr::new::<crate::DeviceNotFoundError, _>(format!(
+                "could not find keyboard: 0x{:04x}/0x{:04x}/0x{:04x} (vendor_id/product_id/usage_page)",
+                vid, pid, usage_page
+            )),
+            Error::UnsupportedProtocol(version) => {
+                pyo3::PyErr::new::<crate::UnsupportedProtocolError, _>(format!(
+                    "unsupported protocol version: {}",
+                    version
+                ))
+            }
+            Error::SizeMismatch {
+                expected,
+                actual,
+                context,
+            } => pyo3::PyErr::new::<crate::SizeMismatchError, _>(format!(
+                "{}: expected size = {}, actual size = {}",
+                context, expected, actual
+            )),
+            Error::BadCommandResponse(cmd) => {
+                pyo3::PyErr::new::<crate::CommandResponseError, _>(format!(
+                    "command failure for {:?}",
+                    cmd
+                ))
+            }
+            Error::SendCommand(cmd, msg) => pyo3::PyErr::new::<crate::CommandResponseError, _>(
+                format!("failed sending command {:?}: {}", cmd, msg),
+            ),
+            Error::InvalidArgument(arg) => {
+                pyo3::PyErr::new::<crate::InvalidArgumentError, _>(arg)
+            }
+        }
     }
 }

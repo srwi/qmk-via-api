@@ -21,26 +21,30 @@ cargo add qmk-via-api
 Usage example:
 
 ```rust
-use qmk_via_api::{api::KeyboardApi, scan::scan_keyboards};
+use qmk_via_api::{
+    api::KeyboardApi,
+    scan::scan_keyboards,
+};
 
-fn main() {
-    if let Some(dev) = scan_keyboards().first() {
-        let api = KeyboardApi::new(dev.vendor_id, dev.product_id, dev.usage_page).unwrap();
-        println!("Protocol version: {:?}", api.get_protocol_version());
-        println!("Layer count: {:?}", api.get_layer_count());
-    } else {
-        println!("No devices found");
-    }
+fn main() -> Result<(), qmk_via_api::Error> {
+    let devices = scan_keyboards()?;
+    let dev = match devices.first() {
+        Some(dev) => dev,
+        None => {
+            println!("No devices found");
+            return Ok(());
+        }
+    };
+    let api = KeyboardApi::from_device(dev)?;
+
+    println!("Protocol version: {:?}", api.get_protocol_version()?);
+    println!("Layer count: {:?}", api.get_layer_count()?);
+
+    let original = api.get_key(0, 0, 0)?;
+    api.set_key(0, 0, 0, original)?;
+
+    Ok(())
 }
-```
-
-### Disable Python Bindings
-
-The `python` feature flag is enabled by default. In projects that don't interoperate with Python, the Python bindings can be disabled by turning off default features. In `Cargo.toml`:
-
-```toml
-[dependencies]
-qmk-via-api = { version = "0.3.0", default-features = false }
 ```
 
 ## Python
@@ -58,13 +62,18 @@ import qmk_via_api
 from qmk_via_api import scan_keyboards
 
 devices = scan_keyboards()
-if devices:
-    dev = devices[0]
-    api = qmk_via_api.KeyboardApi(dev.vendor_id, dev.product_id, dev.usage_page)
-    print(f"Protocol version {api.get_protocol_version()}")
-    print(f"Layers count: {api.get_layer_count()}")
-else:
+if not devices:
     print("No devices found")
+    raise SystemExit(0)
+
+dev = devices[0]
+api = qmk_via_api.KeyboardApi.from_device(dev)
+
+print(f"Protocol version {api.get_protocol_version()}")
+print(f"Layers count: {api.get_layer_count()}")
+
+original = api.get_key(0, 0, 0)
+api.set_key(0, 0, 0, original)
 ```
 
 # License & Attribution
