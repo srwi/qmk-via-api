@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 const VIA_USAGE_PAGE: u16 = 0xff60;
 
 /// Information about a connected VIA-compatible keyboard.
-#[cfg_attr(feature = "python", pyclass(get_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, from_py_object))]
 #[derive(Clone, Debug)]
 pub struct KeyboardDeviceInfo {
     /// USB vendor ID

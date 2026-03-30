@@ -2,7 +2,7 @@
 use pyo3::prelude::*;
 
 // V3
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaCommandId {
     GetProtocolVersion = 0x01,
@@ -28,7 +28,7 @@ pub enum ViaCommandId {
     DynamicKeymapSetEncoder = 0x15,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaChannelId {
     IdCustomChannel = 0,
@@ -39,14 +39,14 @@ pub enum ViaChannelId {
     IdQmkLedMatrixChannel = 5,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkBacklightValue {
     IdQmkBacklightBrightness = 1,
     IdQmkBacklightEffect = 2,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkRgblightValue {
     IdQmkRgblightBrightness = 1,
@@ -55,7 +55,7 @@ pub enum ViaQmkRgblightValue {
     IdQmkRgblightColor = 4,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkRgbMatrixValue {
     IdQmkRgbMatrixBrightness = 1,
@@ -64,7 +64,7 @@ pub enum ViaQmkRgbMatrixValue {
     IdQmkRgbMatrixColor = 4,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkLedMatrixValue {
     IdQmkLedMatrixBrightness = 1,
@@ -72,7 +72,7 @@ pub enum ViaQmkLedMatrixValue {
     IdQmkLedMatrixEffectSpeed = 3,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaQmkAudioValue {
     IdQmkAudioEnable = 1,
@@ -80,7 +80,7 @@ pub enum ViaQmkAudioValue {
 }
 
 // V2
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaLightingValue {
     IdBacklightBrightness = 0x09,

@@ -27,14 +27,14 @@ pub type Layer = u8;
 pub type Row = u8;
 pub type Column = u8;
 
-#[cfg_attr(feature = "python", pyclass(get_all, set_all))]
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object))]
 #[derive(Clone, Copy, Debug)]
 pub struct MatrixInfo {
     pub rows: u8,
     pub cols: u8,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Clone, Copy, Debug)]
 pub enum KeyboardValue {
     Uptime = 0x01,
