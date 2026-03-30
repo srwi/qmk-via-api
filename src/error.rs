@@ -17,6 +17,7 @@ pub enum Error {
         usage_page: u16,
     },
     UnsupportedProtocol(u16),
+    UnsupportedFeature(&'static str),
     SizeMismatch {
         expected: usize,
         actual: usize,
@@ -48,6 +49,9 @@ impl std::fmt::Display for Error {
             )),
             Error::UnsupportedProtocol(version) => {
                 f.write_fmt(format_args!("unsupported protocol version: {}", version))
+            }
+            Error::UnsupportedFeature(feature) => {
+                f.write_fmt(format_args!("unsupported feature: {}", feature))
             }
             Error::NoSuchKeyboard {
                 vid,
@@ -90,6 +94,12 @@ impl From<Error> for pyo3::PyErr {
                 pyo3::PyErr::new::<crate::UnsupportedProtocolError, _>(format!(
                     "unsupported protocol version: {}",
                     version
+                ))
+            }
+            Error::UnsupportedFeature(feature) => {
+                pyo3::PyErr::new::<crate::UnsupportedProtocolError, _>(format!(
+                    "unsupported feature: {}",
+                    feature
                 ))
             }
             Error::SizeMismatch {

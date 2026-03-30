@@ -1,6 +1,6 @@
 use crate::api_commands::{
-    ViaChannelId, ViaCommandId, ViaQmkAudioValue, ViaQmkBacklightValue, ViaQmkLedMatrixValue,
-    ViaQmkRgbMatrixValue, ViaQmkRgblightValue,
+    ViaChannelId, ViaCommandId, ViaLightingValue, ViaQmkAudioValue, ViaQmkBacklightValue,
+    ViaQmkLedMatrixValue, ViaQmkRgbMatrixValue, ViaQmkRgblightValue,
 };
 use crate::scan::KeyboardDeviceInfo;
 use crate::{utils, Error, Result};
@@ -21,6 +21,7 @@ pub const DATA_BUFFER_SIZE: usize = 28;
 pub const PROTOCOL_ALPHA: u16 = 7;
 pub const PROTOCOL_BETA: u16 = 8;
 pub const PROTOCOL_GAMMA: u16 = 9;
+pub const PROTOCOL_V3: u16 = 11;
 
 pub type Layer = u8;
 pub type Row = u8;
@@ -58,9 +59,64 @@ impl FromStr for KeyboardValue {
     }
 }
 
+fn hid_command_on_device(
+    device: &hidapi::HidDevice,
+    command: ViaCommandId,
+    bytes: Vec<u8>,
+) -> Result<Vec<u8>> {
+    let mut command_bytes: Vec<u8> = vec![command as u8];
+    command_bytes.extend(bytes);
+
+    hid_send_on_device(device, command_bytes.clone())
+        .map_err(|send_err| Error::SendCommand(command, send_err.to_string()))?;
+
+    let buffer = hid_read_on_device(device)?;
+    if buffer.starts_with(&command_bytes) {
+        Ok(buffer)
+    } else {
+        Err(Error::BadCommandResponse(command))
+    }
+}
+
+fn hid_read_on_device(device: &hidapi::HidDevice) -> Result<Vec<u8>> {
+    let mut buffer = vec![0; RAW_EPSIZE];
+    device.read(&mut buffer)?;
+    Ok(buffer)
+}
+
+fn hid_send_on_device(device: &hidapi::HidDevice, bytes: Vec<u8>) -> Result<()> {
+    if bytes.len() > RAW_EPSIZE {
+        return Err(Error::size_mismatch(
+            "send buffer overflow",
+            RAW_EPSIZE,
+            bytes.len(),
+        ));
+    }
+
+    let mut command_bytes: Vec<u8> = vec![COMMAND_START];
+    command_bytes.extend(bytes);
+
+    let mut padded_array = vec![0; RAW_EPSIZE + 1];
+    for (idx, &val) in command_bytes.iter().enumerate() {
+        padded_array[idx] = val;
+    }
+
+    let bytes_written = device.write(&padded_array)?;
+    if bytes_written == RAW_EPSIZE + 1 {
+        return Ok(());
+    }
+
+    Err(Error::size_mismatch(
+        "unexpected number of bytes written",
+        bytes_written,
+        RAW_EPSIZE + 1,
+    ))
+}
+
 #[cfg_attr(feature = "python", pyclass(unsendable))]
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
+    protocol_version: u16,
 }
 
 #[cfg(feature = "python")]
@@ -96,11 +152,20 @@ impl KeyboardApi {
             })?
             .open_device(&api)?;
 
-        Ok(KeyboardApi { device })
+        let protocol_version = Self::read_protocol_version(&device)?;
+        Ok(KeyboardApi {
+            device,
+            protocol_version,
+        })
     }
 
     pub fn from_device(device: &KeyboardDeviceInfo) -> Result<KeyboardApi> {
         Self::new(device.vendor_id, device.product_id, device.usage_page)
+    }
+
+    fn read_protocol_version(device: &hidapi::HidDevice) -> Result<u16> {
+        let buffer = hid_command_on_device(device, ViaCommandId::GetProtocolVersion, vec![])?;
+        Ok(utils::shift_to_16_bit(buffer[1], buffer[2]))
     }
 }
 
@@ -108,66 +173,27 @@ impl KeyboardApi {
 impl KeyboardApi {
     /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
     pub fn hid_command(&self, command: ViaCommandId, bytes: Vec<u8>) -> Result<Vec<u8>> {
-        let mut command_bytes: Vec<u8> = vec![command as u8];
-        command_bytes.extend(bytes);
-
-        self.hid_send(command_bytes.clone())
-            .map_err(|send_err| Error::SendCommand(command, send_err.to_string()))?;
-
-        let buffer = self.hid_read()?;
-        if buffer.starts_with(&command_bytes) {
-            Ok(buffer)
-        } else {
-            Err(Error::BadCommandResponse(command))
-        }
+        hid_command_on_device(&self.device, command, bytes)
     }
 
     /// Reads from the HID device. Returns None if the read fails.
     pub fn hid_read(&self) -> Result<Vec<u8>> {
-        let mut buffer = vec![0; RAW_EPSIZE];
-        self.device.read(&mut buffer)?;
-        Ok(buffer)
+        hid_read_on_device(&self.device)
     }
 
     /// Sends a raw HID command prefixed with the command byte. Returns None if the send fails.
     pub fn hid_send(&self, bytes: Vec<u8>) -> Result<()> {
-        if bytes.len() > RAW_EPSIZE {
-            return Err(Error::size_mismatch(
-                "send buffer overflow",
-                RAW_EPSIZE,
-                bytes.len(),
-            ));
-        }
-
-        let mut command_bytes: Vec<u8> = vec![COMMAND_START];
-        command_bytes.extend(bytes);
-
-        let mut padded_array = vec![0; RAW_EPSIZE + 1];
-        for (idx, &val) in command_bytes.iter().enumerate() {
-            padded_array[idx] = val;
-        }
-
-        let bytes_written = self.device.write(&padded_array)?;
-        if bytes_written == RAW_EPSIZE + 1 {
-            return Ok(());
-        }
-
-        Err(Error::size_mismatch(
-            "unexpected number of bytes written",
-            bytes_written,
-            RAW_EPSIZE + 1,
-        ))
+        hid_send_on_device(&self.device, bytes)
     }
 
     /// Returns the protocol version of the keyboard.
     pub fn get_protocol_version(&self) -> Result<u16> {
-        self.hid_command(ViaCommandId::GetProtocolVersion, vec![])
-            .map(|val| utils::shift_to_16_bit(val[1], val[2]))
+        Ok(self.protocol_version)
     }
 
     /// Returns the number of layers on the keyboard.
     pub fn get_layer_count(&self) -> Result<u8> {
-        match self.get_protocol_version()? {
+        match self.protocol_version {
             version if version >= PROTOCOL_BETA => self
                 .hid_command(ViaCommandId::DynamicKeymapGetLayerCount, vec![])
                 .map(|val| val[1]),
@@ -191,7 +217,7 @@ impl KeyboardApi {
 
     /// Returns the keycodes for the given matrix info (number of rows and columns) and layer.
     pub fn read_raw_matrix(&self, matrix_info: MatrixInfo, layer: Layer) -> Result<Vec<u16>> {
-        match self.get_protocol_version()? {
+        match self.protocol_version {
             version if version >= PROTOCOL_BETA => self.fast_read_raw_matrix(matrix_info, layer),
             version if version == PROTOCOL_ALPHA => self.slow_read_raw_matrix(matrix_info, layer),
             version => Err(Error::UnsupportedProtocol(version)),
@@ -253,7 +279,7 @@ impl KeyboardApi {
 
     /// Writes a keymap to the keyboard for the given matrix info (number of rows and columns).
     pub fn write_raw_matrix(&self, matrix_info: MatrixInfo, keymap: Vec<Vec<u16>>) -> Result<()> {
-        match self.get_protocol_version()? {
+        match self.protocol_version {
             version if version >= PROTOCOL_BETA => self.fast_write_raw_matrix(keymap)?,
             version if version == PROTOCOL_ALPHA => {
                 self.slow_write_raw_matrix(matrix_info, keymap)?
@@ -298,15 +324,31 @@ impl KeyboardApi {
         parameters: Vec<u8>,
         result_length: usize,
     ) -> Result<Vec<u8>> {
+        match command {
+            KeyboardValue::FirmwareVersion | KeyboardValue::DeviceIndication
+                if self.protocol_version < PROTOCOL_V3 =>
+            {
+                return Err(Error::UnsupportedProtocol(self.protocol_version));
+            }
+            _ => {}
+        }
         let parameters_length = parameters.len();
         let mut bytes = vec![command as u8];
         bytes.extend(parameters);
         self.hid_command(ViaCommandId::GetKeyboardValue, bytes)
-            .map(|val| val[1 + parameters_length..1 + parameters_length + result_length].to_vec())
+            .map(|val| val[2 + parameters_length..2 + parameters_length + result_length].to_vec())
     }
 
     /// Sets a keyboard value. This can be used to set keyboard values like layout options or device indication.
     pub fn set_keyboard_value(&self, command: KeyboardValue, parameters: Vec<u8>) -> Result<()> {
+        match command {
+            KeyboardValue::FirmwareVersion | KeyboardValue::DeviceIndication
+                if self.protocol_version < PROTOCOL_V3 =>
+            {
+                return Err(Error::UnsupportedProtocol(self.protocol_version));
+            }
+            _ => {}
+        }
         let mut bytes = vec![command as u8];
         bytes.extend(parameters);
         self.hid_command(ViaCommandId::SetKeyboardValue, bytes)
@@ -344,6 +386,9 @@ impl KeyboardApi {
 
     /// Get a custom menu value. This is a generic function that can be used to get any value specific to arbitrary keyboard functionalities.
     pub fn get_custom_menu_value(&self, command_bytes: Vec<u8>) -> Result<Vec<u8>> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedProtocol(self.protocol_version));
+        }
         let command_length = command_bytes.len();
         self.hid_command(ViaCommandId::CustomMenuGetValue, command_bytes)
             .map(|val| val[0..command_length].to_vec())
@@ -351,12 +396,18 @@ impl KeyboardApi {
 
     /// Set a custom menu value. This is a generic function that can be used to set any value specific to arbitrary keyboard functionalities.
     pub fn set_custom_menu_value(&self, args: Vec<u8>) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedProtocol(self.protocol_version));
+        }
         self.hid_command(ViaCommandId::CustomMenuSetValue, args)
             .map(|_| ())
     }
 
     /// Saves the custom menu values for the given channel id.
     pub fn save_custom_menu(&self, channel: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedProtocol(self.protocol_version));
+        }
         let bytes = vec![channel];
         self.hid_command(ViaCommandId::CustomMenuSave, bytes)
             .map(|_| ())
@@ -364,157 +415,258 @@ impl KeyboardApi {
 
     /// Gets the backlight brightness.
     pub fn get_backlight_brightness(&self) -> Result<u8> {
-        self.hid_command(
-            ViaCommandId::CustomMenuGetValue,
-            vec![
-                ViaChannelId::IdQmkBacklightChannel as u8,
-                ViaQmkBacklightValue::IdQmkBacklightBrightness as u8,
-            ],
-        )
-        .map(|val| val[3])
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![
+                    ViaChannelId::IdQmkBacklightChannel as u8,
+                    ViaQmkBacklightValue::IdQmkBacklightBrightness as u8,
+                ],
+            )
+            .map(|val| val[3])
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![ViaLightingValue::IdBacklightBrightness as u8],
+            )
+            .map(|val| val[2])
+        }
     }
 
     /// Sets the backlight brightness.
     pub fn set_backlight_brightness(&self, brightness: u8) -> Result<()> {
-        self.hid_command(
-            ViaCommandId::CustomMenuSetValue,
-            vec![
-                ViaChannelId::IdQmkBacklightChannel as u8,
-                ViaQmkBacklightValue::IdQmkBacklightBrightness as u8,
-                brightness,
-            ],
-        )
-        .map(|_| ())
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![
+                    ViaChannelId::IdQmkBacklightChannel as u8,
+                    ViaQmkBacklightValue::IdQmkBacklightBrightness as u8,
+                    brightness,
+                ],
+            )
+            .map(|_| ())
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![ViaLightingValue::IdBacklightBrightness as u8, brightness],
+            )
+            .map(|_| ())
+        }
     }
 
     /// Gets the backlight effect.
     pub fn get_backlight_effect(&self) -> Result<u8> {
-        self.hid_command(
-            ViaCommandId::CustomMenuGetValue,
-            vec![
-                ViaChannelId::IdQmkBacklightChannel as u8,
-                ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
-            ],
-        )
-        .map(|val| val[3])
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![
+                    ViaChannelId::IdQmkBacklightChannel as u8,
+                    ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
+                ],
+            )
+            .map(|val| val[3])
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![ViaLightingValue::IdBacklightEffect as u8],
+            )
+            .map(|val| val[2])
+        }
     }
 
     /// Sets the backlight effect.
     pub fn set_backlight_effect(&self, effect: u8) -> Result<()> {
-        self.hid_command(
-            ViaCommandId::CustomMenuSetValue,
-            vec![
-                ViaChannelId::IdQmkBacklightChannel as u8,
-                ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
-                effect,
-            ],
-        )
-        .map(|_| ())
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![
+                    ViaChannelId::IdQmkBacklightChannel as u8,
+                    ViaQmkBacklightValue::IdQmkBacklightEffect as u8,
+                    effect,
+                ],
+            )
+            .map(|_| ())
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![ViaLightingValue::IdBacklightEffect as u8, effect],
+            )
+            .map(|_| ())
+        }
     }
 
     /// Gets the RGB light brightness.
     pub fn get_rgblight_brightness(&self) -> Result<u8> {
-        self.hid_command(
-            ViaCommandId::CustomMenuGetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightBrightness as u8,
-            ],
-        )
-        .map(|val| val[3])
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![
+                    ViaChannelId::IdQmkRgblightChannel as u8,
+                    ViaQmkRgblightValue::IdQmkRgblightBrightness as u8,
+                ],
+            )
+            .map(|val| val[3])
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![ViaLightingValue::IdQmkRgblightBrightness as u8],
+            )
+            .map(|val| val[2])
+        }
     }
 
     /// Sets the RGB light brightness.
     pub fn set_rgblight_brightness(&self, brightness: u8) -> Result<()> {
-        self.hid_command(
-            ViaCommandId::CustomMenuSetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightBrightness as u8,
-                brightness,
-            ],
-        )
-        .map(|_| ())
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![
+                    ViaChannelId::IdQmkRgblightChannel as u8,
+                    ViaQmkRgblightValue::IdQmkRgblightBrightness as u8,
+                    brightness,
+                ],
+            )
+            .map(|_| ())
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![ViaLightingValue::IdQmkRgblightBrightness as u8, brightness],
+            )
+            .map(|_| ())
+        }
     }
 
     /// Gets the RGB light effect.
     pub fn get_rgblight_effect(&self) -> Result<u8> {
-        self.hid_command(
-            ViaCommandId::CustomMenuGetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
-            ],
-        )
-        .map(|val| val[3])
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![
+                    ViaChannelId::IdQmkRgblightChannel as u8,
+                    ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
+                ],
+            )
+            .map(|val| val[3])
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![ViaLightingValue::IdQmkRgblightEffect as u8],
+            )
+            .map(|val| val[2])
+        }
     }
 
     /// Sets the RGB light effect.
     pub fn set_rgblight_effect(&self, effect: u8) -> Result<()> {
-        self.hid_command(
-            ViaCommandId::CustomMenuSetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
-                effect,
-            ],
-        )
-        .map(|_| ())
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![
+                    ViaChannelId::IdQmkRgblightChannel as u8,
+                    ViaQmkRgblightValue::IdQmkRgblightEffect as u8,
+                    effect,
+                ],
+            )
+            .map(|_| ())
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![ViaLightingValue::IdQmkRgblightEffect as u8, effect],
+            )
+            .map(|_| ())
+        }
     }
 
     /// Gets the RGB light effect speed.
     pub fn get_rgblight_effect_speed(&self) -> Result<u8> {
-        self.hid_command(
-            ViaCommandId::CustomMenuGetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
-            ],
-        )
-        .map(|val| val[3])
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![
+                    ViaChannelId::IdQmkRgblightChannel as u8,
+                    ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
+                ],
+            )
+            .map(|val| val[3])
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuGetValue,
+                vec![ViaLightingValue::IdQmkRgblightEffectSpeed as u8],
+            )
+            .map(|val| val[2])
+        }
     }
 
     /// Sets the RGB light effect speed.
     pub fn set_rgblight_effect_speed(&self, speed: u8) -> Result<()> {
-        self.hid_command(
-            ViaCommandId::CustomMenuSetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
-                speed,
-            ],
-        )
-        .map(|_| ())
+        if self.protocol_version >= PROTOCOL_V3 {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![
+                    ViaChannelId::IdQmkRgblightChannel as u8,
+                    ViaQmkRgblightValue::IdQmkRgblightEffectSpeed as u8,
+                    speed,
+                ],
+            )
+            .map(|_| ())
+        } else {
+            self.hid_command(
+                ViaCommandId::CustomMenuSetValue,
+                vec![ViaLightingValue::IdQmkRgblightEffectSpeed as u8, speed],
+            )
+            .map(|_| ())
+        }
     }
 
     /// Gets the RGB light color.
     pub fn get_rgblight_color(&self) -> Result<(u8, u8)> {
+        if self.protocol_version >= PROTOCOL_V3 {
+            return self
+                .hid_command(
+                    ViaCommandId::CustomMenuGetValue,
+                    vec![
+                        ViaChannelId::IdQmkRgblightChannel as u8,
+                        ViaQmkRgblightValue::IdQmkRgblightColor as u8,
+                    ],
+                )
+                .map(|val| (val[3], val[4]));
+        }
+
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightColor as u8,
-            ],
+            vec![ViaLightingValue::IdQmkRgblightColor as u8],
         )
-        .map(|val| (val[3], val[4]))
+        .map(|val| (val[2], val[3]))
     }
 
     /// Sets the RGB light color.
     pub fn set_rgblight_color(&self, hue: u8, sat: u8) -> Result<()> {
+        if self.protocol_version >= PROTOCOL_V3 {
+            return self
+                .hid_command(
+                    ViaCommandId::CustomMenuSetValue,
+                    vec![
+                        ViaChannelId::IdQmkRgblightChannel as u8,
+                        ViaQmkRgblightValue::IdQmkRgblightColor as u8,
+                        hue,
+                        sat,
+                    ],
+                )
+                .map(|_| ());
+        }
+
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
-            vec![
-                ViaChannelId::IdQmkRgblightChannel as u8,
-                ViaQmkRgblightValue::IdQmkRgblightColor as u8,
-                hue,
-                sat,
-            ],
+            vec![ViaLightingValue::IdQmkRgblightColor as u8, hue, sat],
         )
         .map(|_| ())
     }
 
     /// Gets the RGB matrix brightness.
     pub fn get_rgb_matrix_brightness(&self) -> Result<u8> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -527,6 +679,9 @@ impl KeyboardApi {
 
     /// Sets the RGB matrix brightness.
     pub fn set_rgb_matrix_brightness(&self, brightness: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -540,6 +695,9 @@ impl KeyboardApi {
 
     /// Gets the RGB matrix effect.
     pub fn get_rgb_matrix_effect(&self) -> Result<u8> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -552,6 +710,9 @@ impl KeyboardApi {
 
     /// Sets the RGB matrix effect.
     pub fn set_rgb_matrix_effect(&self, effect: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -565,6 +726,9 @@ impl KeyboardApi {
 
     /// Gets the RGB matrix effect speed.
     pub fn get_rgb_matrix_effect_speed(&self) -> Result<u8> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -577,6 +741,9 @@ impl KeyboardApi {
 
     /// Sets the RGB matrix effect speed.
     pub fn set_rgb_matrix_effect_speed(&self, speed: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -590,6 +757,9 @@ impl KeyboardApi {
 
     /// Gets the RGB matrix color.
     pub fn get_rgb_matrix_color(&self) -> Result<(u8, u8)> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -602,6 +772,9 @@ impl KeyboardApi {
 
     /// Sets the RGB matrix color.
     pub fn set_rgb_matrix_color(&self, hue: u8, sat: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("RGB matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -616,6 +789,9 @@ impl KeyboardApi {
 
     /// Gets the LED matrix brightness.
     pub fn get_led_matrix_brightness(&self) -> Result<u8> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("LED matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -628,6 +804,9 @@ impl KeyboardApi {
 
     /// Sets the LED matrix brightness.
     pub fn set_led_matrix_brightness(&self, brightness: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("LED matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -641,6 +820,9 @@ impl KeyboardApi {
 
     /// Gets the LED matrix effect.
     pub fn get_led_matrix_effect(&self) -> Result<u8> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("LED matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -653,6 +835,9 @@ impl KeyboardApi {
 
     /// Sets the LED matrix effect.
     pub fn set_led_matrix_effect(&self, effect: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("LED matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -666,6 +851,9 @@ impl KeyboardApi {
 
     /// Gets the LED matrix effect speed.
     pub fn get_led_matrix_effect_speed(&self) -> Result<u8> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("LED matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -678,6 +866,9 @@ impl KeyboardApi {
 
     /// Sets the LED matrix effect speed.
     pub fn set_led_matrix_effect_speed(&self, speed: u8) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("LED matrix"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuSetValue,
             vec![
@@ -697,6 +888,9 @@ impl KeyboardApi {
 
     /// Gets the audio enabled state.
     pub fn get_audio_enabled(&self) -> Result<bool> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("audio"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -709,6 +903,9 @@ impl KeyboardApi {
 
     /// Sets the audio enabled state.
     pub fn set_audio_enabled(&self, enabled: bool) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("audio"));
+        }
         let bytes = vec![
             ViaChannelId::IdQmkAudioChannel as u8,
             ViaQmkAudioValue::IdQmkAudioEnable as u8,
@@ -720,6 +917,9 @@ impl KeyboardApi {
 
     /// Gets the audio clicky enabled state.
     pub fn get_audio_clicky_enabled(&self) -> Result<bool> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("audio"));
+        }
         self.hid_command(
             ViaCommandId::CustomMenuGetValue,
             vec![
@@ -732,6 +932,9 @@ impl KeyboardApi {
 
     /// Sets the audio clicky enabled state.
     pub fn set_audio_clicky_enabled(&self, enabled: bool) -> Result<()> {
+        if self.protocol_version < PROTOCOL_V3 {
+            return Err(Error::UnsupportedFeature("audio"));
+        }
         let bytes = vec![
             ViaChannelId::IdQmkAudioChannel as u8,
             ViaQmkAudioValue::IdQmkAudioClickyEnable as u8,

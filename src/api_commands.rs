@@ -1,6 +1,7 @@
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+// V3
 #[cfg_attr(feature = "python", pyclass)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ViaCommandId {
@@ -76,4 +77,16 @@ pub enum ViaQmkLedMatrixValue {
 pub enum ViaQmkAudioValue {
     IdQmkAudioEnable = 1,
     IdQmkAudioClickyEnable = 2,
+}
+
+// V2
+#[cfg_attr(feature = "python", pyclass)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ViaLightingValue {
+    IdBacklightBrightness = 0x09,
+    IdBacklightEffect = 0x0a,
+    IdQmkRgblightBrightness = 0x80,
+    IdQmkRgblightEffect = 0x81,
+    IdQmkRgblightEffectSpeed = 0x82,
+    IdQmkRgblightColor = 0x83,
 }
