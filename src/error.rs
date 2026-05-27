@@ -77,6 +77,11 @@ impl From<HidError> for Error {
     }
 }
 
+// This makes it possible to use the `?` operator
+// with `Error` in functions that return `Result<T, Error>`.
+// We also need this for compatibility with crates like Anyhow.
+impl std::error::Error for Error {}
+
 #[cfg(feature = "python")]
 impl From<Error> for pyo3::PyErr {
     fn from(err: Error) -> Self {
