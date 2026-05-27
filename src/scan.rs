@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Error, Result};
 use hidapi::HidApi;
 
 #[cfg(feature = "python")]
@@ -27,7 +27,7 @@ pub struct KeyboardDeviceInfo {
 /// Scan for connected VIA keyboards.
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
-    let api = HidApi::new()?;
+    let api = check_hid_permissions()?;
 
     Ok(api
         .device_list()
@@ -41,4 +41,23 @@ pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
             serial_number: d.serial_number().map(|s| s.to_string()),
         })
         .collect())
+}
+
+/// Check for HID permissions.
+// This is especially relevant on Linux,
+// where users may need to set up udev rules
+// to access HID devices without root.
+#[cfg_attr(feature = "python", pyfunction)]
+pub fn check_hid_permissions() -> Result<HidApi> {
+    match HidApi::new() {
+        Ok(api) => {
+            if api.device_list().count() == 0 {
+                return Err(Error::Hid(
+                    "No HID devices found. This may indicate a permissions issue.".to_string(),
+                ));
+            }
+            Ok(api)
+        }
+        Err(e) => Err(Error::Hid(format!("Failed to initialize HID API: {}", e))),
+    }
 }
