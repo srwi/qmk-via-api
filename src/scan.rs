@@ -27,7 +27,7 @@ pub struct KeyboardDeviceInfo {
 /// Scan for connected VIA keyboards.
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
-    let api = check_hid_permissions()?;
+    let api = HidApi::new()?;
 
     Ok(api
         .device_list()
