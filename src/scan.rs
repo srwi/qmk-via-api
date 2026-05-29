@@ -48,15 +48,13 @@ pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
 // where users may need to set up udev rules
 // to access HID devices without root.
 #[cfg_attr(feature = "python", pyfunction)]
-pub fn check_hid_permissions() -> Result<HidApi> {
+pub fn check_hid_permissions() -> Result<()> {
     match HidApi::new() {
         Ok(api) => {
             if api.device_list().count() == 0 {
-                return Err(Error::Hid(
-                    "No HID devices found. This may indicate a permissions issue.".to_string(),
-                ));
+                return Err(Error::maybe_permission_denied());
             }
-            Ok(api)
+            Ok(())
         }
         Err(e) => Err(Error::Hid(format!("Failed to initialize HID API: {}", e))),
     }
