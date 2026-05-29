@@ -6,9 +6,12 @@ use crate::api_commands::ViaCommandId;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
+pub const MAYBE_PERMISSION_DENIED_MESSAGE: &str = "No HID devices were visible through hidapi. This can mean no HID devices are connected, but it can also indicate that this process does not have permission to enumerate HID devices. On Linux, check that the user has access to hidraw devices or install the appropriate udev rules for the keyboard.";
+
 #[derive(Debug)]
 pub enum Error {
     Hid(String),
+    MaybePermissionDenied(String),
     BadCommandResponse(ViaCommandId),
     SendCommand(ViaCommandId, String),
     NoSuchKeyboard {
@@ -33,6 +36,10 @@ impl Error {
             actual,
             context,
         }
+    }
+
+    pub fn maybe_permission_denied() -> Self {
+        Error::MaybePermissionDenied(MAYBE_PERMISSION_DENIED_MESSAGE.to_string())
     }
 }
 
@@ -66,6 +73,7 @@ impl std::fmt::Display for Error {
                 cmd
             )),
             Error::InvalidArgument(arg) => f.write_fmt(format_args!("invalid argument: {}", arg)),
+            Error::MaybePermissionDenied(msg) => f.write_str(msg),
             _ => Debug::fmt(&self, f),
         }
     }
@@ -82,6 +90,9 @@ impl From<Error> for pyo3::PyErr {
     fn from(err: Error) -> Self {
         match err {
             Error::Hid(msg) => pyo3::PyErr::new::<crate::HidError, _>(msg),
+            Error::MaybePermissionDenied(msg) => {
+                pyo3::PyErr::new::<crate::MaybePermissionDeniedError, _>(msg)
+            }
             Error::NoSuchKeyboard {
                 vid,
                 pid,
