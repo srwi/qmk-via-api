@@ -62,9 +62,9 @@ fn try_open_device(api: &HidApi, info: &KeyboardDeviceInfo) -> Result<()> {
 }
 
 /// Check for HID permissions.
-// This is especially relevant on Linux,
-// where users may need to set up udev rules
-// to access HID devices without root.
+/// On linux, this checks if the HID device list is empty and optionally tries to open a specific device to verify permissions.
+/// On windows and macOS, it simply checks if the HID API can be initialized and optionally tries to open a specific device.
+/// On unsupported platforms, it returns an error indicating that the feature is not implemented.
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn check_hid_permissions(filter: Option<KeyboardDeviceInfo>) -> Result<()> {
     #[cfg(target_os = "linux")]
