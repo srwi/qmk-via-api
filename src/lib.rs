@@ -59,5 +59,6 @@ fn qmk_via_api(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         _py.get_type::<InvalidArgumentError>(),
     )?;
     m.add_function(wrap_pyfunction!(scan::scan_keyboards, m)?)?;
+    m.add_function(wrap_pyfunction!(scan::check_hid_permissions, m)?)?;
     Ok(())
 }
