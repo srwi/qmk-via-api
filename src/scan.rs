@@ -43,19 +43,63 @@ pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
         .collect())
 }
 
+fn try_open_device(api: &HidApi, info: &KeyboardDeviceInfo) -> Result<()> {
+    let device = api
+        .device_list()
+        .find(|d| {
+            d.usage_page() == VIA_USAGE_PAGE
+                && d.vendor_id() == info.vendor_id
+                && d.product_id() == info.product_id
+        })
+        .ok_or(Error::NoSuchKeyboard {
+            vid: info.vendor_id,
+            pid: info.product_id,
+            usage_page: info.usage_page,
+        })?;
+
+    device.open_device(api)?;
+    Ok(())
+}
+
 /// Check for HID permissions.
 // This is especially relevant on Linux,
 // where users may need to set up udev rules
 // to access HID devices without root.
 #[cfg_attr(feature = "python", pyfunction)]
-pub fn check_hid_permissions() -> Result<()> {
-    match HidApi::new() {
-        Ok(api) => {
-            if api.device_list().count() == 0 {
-                return Err(Error::maybe_permission_denied());
+pub fn check_hid_permissions(filter: Option<KeyboardDeviceInfo>) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        match HidApi::new() {
+            Ok(api) => {
+                if api.device_list().count() == 0 {
+                    return Err(Error::maybe_permission_denied());
+                }
+                if let Some(f) = filter {
+                    try_open_device(&api, &f)?;
+                }
+                Ok(())
             }
-            Ok(())
+            Err(e) => Err(Error::Hid(format!("Failed to initialize HID API: {}", e))),
         }
-        Err(e) => Err(Error::Hid(format!("Failed to initialize HID API: {}", e))),
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        match HidApi::new() {
+            Ok(api) => {
+                if let Some(f) = filter {
+                    try_open_device(&api, &f)?;
+                }
+                Ok(())
+            }
+            Err(e) => Err(Error::Hid(format!("Failed to initialize HID API: {}", e))),
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        Err(Error::UnsupportedFeature(
+            "HID permission checking is not implemented for this platform",
+        ))
     }
 }
