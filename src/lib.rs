@@ -19,6 +19,8 @@ create_exception!(qmk_via_api, QmkViaError, PyException);
 #[cfg(feature = "python")]
 create_exception!(qmk_via_api, HidError, QmkViaError);
 #[cfg(feature = "python")]
+create_exception!(qmk_via_api, MaybePermissionDeniedError, QmkViaError);
+#[cfg(feature = "python")]
 create_exception!(qmk_via_api, DeviceNotFoundError, QmkViaError);
 #[cfg(feature = "python")]
 create_exception!(qmk_via_api, UnsupportedProtocolError, QmkViaError);
@@ -38,6 +40,10 @@ fn qmk_via_api(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<scan::KeyboardDeviceInfo>()?;
     m.add("QmkViaError", _py.get_type::<QmkViaError>())?;
     m.add("HidError", _py.get_type::<HidError>())?;
+    m.add(
+        "MaybePermissionDeniedError",
+        _py.get_type::<MaybePermissionDeniedError>(),
+    )?;
     m.add("DeviceNotFoundError", _py.get_type::<DeviceNotFoundError>())?;
     m.add(
         "UnsupportedProtocolError",
@@ -53,5 +59,6 @@ fn qmk_via_api(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         _py.get_type::<InvalidArgumentError>(),
     )?;
     m.add_function(wrap_pyfunction!(scan::scan_keyboards, m)?)?;
+    m.add_function(wrap_pyfunction!(scan::check_hid_permissions, m)?)?;
     Ok(())
 }
