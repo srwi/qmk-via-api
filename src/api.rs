@@ -63,6 +63,7 @@ fn hid_command_on_device(
     device: &hidapi::HidDevice,
     command: ViaCommandId,
     bytes: Vec<u8>,
+    timeout_ms: Option<i32>,
 ) -> Result<Vec<u8>> {
     let mut command_bytes: Vec<u8> = vec![command as u8];
     command_bytes.extend(bytes);
@@ -70,7 +71,7 @@ fn hid_command_on_device(
     hid_send_on_device(device, command_bytes.clone())
         .map_err(|send_err| Error::SendCommand(command, send_err.to_string()))?;
 
-    let buffer = hid_read_on_device(device)?;
+    let buffer = hid_read_on_device(device, timeout_ms)?;
     if buffer.starts_with(&command_bytes) {
         Ok(buffer)
     } else {
@@ -78,9 +79,13 @@ fn hid_command_on_device(
     }
 }
 
-fn hid_read_on_device(device: &hidapi::HidDevice) -> Result<Vec<u8>> {
+fn hid_read_on_device(device: &hidapi::HidDevice, timeout_ms: Option<i32>) -> Result<Vec<u8>> {
     let mut buffer = vec![0; RAW_EPSIZE];
-    device.read(&mut buffer)?;
+    if let Some(timeout) = timeout_ms {
+        device.read_timeout(&mut buffer, timeout)?;
+    } else {
+        device.read(&mut buffer)?;
+    }
     Ok(buffer)
 }
 
@@ -162,7 +167,7 @@ impl KeyboardApi {
             })?
             .open_device(&api)?;
 
-        let protocol_version = Self::read_protocol_version(&device)?;
+        let protocol_version = Self::read_protocol_version(&device, timeout_ms)?;
         Ok(KeyboardApi {
             device,
             protocol_version,
@@ -182,8 +187,9 @@ impl KeyboardApi {
         )
     }
 
-    fn read_protocol_version(device: &hidapi::HidDevice) -> Result<u16> {
-        let buffer = hid_command_on_device(device, ViaCommandId::GetProtocolVersion, vec![])?;
+    fn read_protocol_version(device: &hidapi::HidDevice, timeout_ms: Option<i32>) -> Result<u16> {
+        let buffer =
+            hid_command_on_device(device, ViaCommandId::GetProtocolVersion, vec![], timeout_ms)?;
         Ok(utils::shift_to_16_bit(buffer[1], buffer[2]))
     }
 }
@@ -192,12 +198,12 @@ impl KeyboardApi {
 impl KeyboardApi {
     /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
     pub fn hid_command(&self, command: ViaCommandId, bytes: Vec<u8>) -> Result<Vec<u8>> {
-        hid_command_on_device(&self.device, command, bytes)
+        hid_command_on_device(&self.device, command, bytes, self.timeout_ms)
     }
 
     /// Reads from the HID device. Returns None if the read fails.
     pub fn hid_read(&self) -> Result<Vec<u8>> {
-        hid_read_on_device(&self.device)
+        hid_read_on_device(&self.device, self.timeout_ms)
     }
 
     /// Sends a raw HID command prefixed with the command byte. Returns None if the send fails.
