@@ -117,25 +117,35 @@ fn hid_send_on_device(device: &hidapi::HidDevice, bytes: Vec<u8>) -> Result<()> 
 pub struct KeyboardApi {
     device: hidapi::HidDevice,
     protocol_version: u16,
+    timeout_ms: Option<i32>,
 }
 
 #[cfg(feature = "python")]
 #[pymethods]
 impl KeyboardApi {
     #[new]
-    pub fn py_new(vid: u16, pid: u16, usage_page: u16) -> Result<Self> {
-        KeyboardApi::new(vid, pid, usage_page)
+    pub fn py_new(vid: u16, pid: u16, usage_page: u16, timeout_ms: Option<i32>) -> Result<Self> {
+        KeyboardApi::new(vid, pid, usage_page, timeout_ms)
     }
 
     #[classmethod]
     #[pyo3(name = "from_device")]
-    pub fn py_from_device(_cls: &Bound<'_, PyType>, device: &KeyboardDeviceInfo) -> Result<Self> {
-        KeyboardApi::from_device(device)
+    pub fn py_from_device(
+        _cls: &Bound<'_, PyType>,
+        device: &KeyboardDeviceInfo,
+        timeout_ms: Option<i32>,
+    ) -> Result<Self> {
+        KeyboardApi::from_device(device, timeout_ms)
     }
 }
 
 impl KeyboardApi {
-    pub fn new(vid: u16, pid: u16, usage_page: u16) -> Result<KeyboardApi> {
+    pub fn new(
+        vid: u16,
+        pid: u16,
+        usage_page: u16,
+        timeout_ms: Option<i32>,
+    ) -> Result<KeyboardApi> {
         let api = HidApi::new()?;
 
         let device = api
@@ -156,11 +166,20 @@ impl KeyboardApi {
         Ok(KeyboardApi {
             device,
             protocol_version,
+            timeout_ms,
         })
     }
 
-    pub fn from_device(device: &KeyboardDeviceInfo) -> Result<KeyboardApi> {
-        Self::new(device.vendor_id, device.product_id, device.usage_page)
+    pub fn from_device(
+        device: &KeyboardDeviceInfo,
+        timeout_ms: Option<i32>,
+    ) -> Result<KeyboardApi> {
+        Self::new(
+            device.vendor_id,
+            device.product_id,
+            device.usage_page,
+            timeout_ms,
+        )
     }
 
     fn read_protocol_version(device: &hidapi::HidDevice) -> Result<u16> {
