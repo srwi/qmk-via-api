@@ -196,6 +196,21 @@ impl KeyboardApi {
 
 #[cfg_attr(feature = "python", pymethods)]
 impl KeyboardApi {
+    /// Sets the read command timeout in milliseconds.
+    /// If set, the commands depend on HID reads timeout after `timeout_ms`
+    /// and return a HIDError.
+    ///
+    /// Set -1 for blocking wait
+    pub fn set_timeout(&mut self, timeout_ms: i32) {
+        self.timeout_ms = Some(timeout_ms);
+    }
+
+    /// Disable the timeouts enforced on the HID reads,
+    /// meaning the commands will block while waiting a HID response.
+    pub fn disable_timeout(&mut self) {
+        self.timeout_ms = None;
+    }
+
     /// Sends a raw HID command prefixed with the command byte and returns the response if successful.
     pub fn hid_command(&self, command: ViaCommandId, bytes: Vec<u8>) -> Result<Vec<u8>> {
         hid_command_on_device(&self.device, command, bytes, self.timeout_ms)
