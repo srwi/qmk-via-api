@@ -81,10 +81,13 @@ fn hid_command_on_device(
 
 fn hid_read_on_device(device: &hidapi::HidDevice, timeout_ms: Option<i32>) -> Result<Vec<u8>> {
     let mut buffer = vec![0; RAW_EPSIZE];
-    if let Some(timeout) = timeout_ms {
-        device.read_timeout(&mut buffer, timeout)?;
-    } else {
-        device.read(&mut buffer)?;
+    match timeout_ms {
+        Some(timeout) if timeout > 0 => {
+            device.read_timeout(&mut buffer, timeout)?;
+        }
+        _ => {
+            device.read(&mut buffer)?;
+        }
     }
     Ok(buffer)
 }
@@ -196,17 +199,23 @@ impl KeyboardApi {
 
 #[cfg_attr(feature = "python", pymethods)]
 impl KeyboardApi {
-    /// Sets the read command timeout in milliseconds.
-    /// If set, the commands depend on HID reads timeout after `timeout_ms`
-    /// and return a HIDError.
+    /// Sets the read timeout enforced on HID reads, in milliseconds.
+    /// When set, commands whose HID read does not complete within `timeout_ms`
+    /// fail with an error instead of blocking.
     ///
-    /// Set -1 for blocking wait
+    /// A non-positive value (`<= 0`) disables the timeout, making reads block
+    /// until a response is received. This is equivalent to calling
+    /// [`disable_timeout`](Self::disable_timeout).
     pub fn set_timeout(&mut self, timeout_ms: i32) {
-        self.timeout_ms = Some(timeout_ms);
+        if timeout_ms <= 0 {
+            self.disable_timeout();
+        } else {
+            self.timeout_ms = Some(timeout_ms);
+        }
     }
 
-    /// Disable the timeouts enforced on the HID reads,
-    /// meaning the commands will block while waiting a HID response.
+    /// Disables the timeout enforced on HID reads, making commands block
+    /// while waiting for a HID response.
     pub fn disable_timeout(&mut self) {
         self.timeout_ms = None;
     }
