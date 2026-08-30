@@ -1,7 +1,11 @@
 use num_enum::TryFromPrimitive;
 use strum_macros::AsRefStr;
 
-#[derive(Debug, Clone, Eq, PartialEq, TryFromPrimitive, AsRefStr)]
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[cfg_attr(feature = "python", pyclass(from_py_object, eq, eq_int))]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, TryFromPrimitive, AsRefStr)]
 #[repr(u16)]
 #[allow(non_camel_case_types)]
 pub enum Keycode {
