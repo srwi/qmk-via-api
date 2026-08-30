@@ -13,6 +13,7 @@ use pyo3::exceptions::PyException;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+pub use api::{KeyboardApi, MatrixInfo, QmkFeatures};
 pub use error::*;
 pub use keycodes::{Keycode, KeycodeCategory};
 pub use quantum::{
@@ -43,6 +44,7 @@ fn qmk_via_api(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<api::KeyboardApi>()?;
     m.add_class::<api_commands::ViaCommandId>()?;
     m.add_class::<api::MatrixInfo>()?;
+    m.add_class::<api::QmkFeatures>()?;
     m.add_class::<scan::KeyboardDeviceInfo>()?;
     m.add_class::<keycodes::Keycode>()?;
     m.add_class::<keycodes::KeycodeCategory>()?;

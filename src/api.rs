@@ -2,6 +2,7 @@ use crate::api_commands::{
     ViaChannelId, ViaCommandId, ViaLightingValue, ViaQmkAudioValue, ViaQmkBacklightValue,
     ViaQmkLedMatrixValue, ViaQmkRgbMatrixValue, ViaQmkRgblightValue,
 };
+use crate::keycodes::KeycodeCategory;
 use crate::scan::KeyboardDeviceInfo;
 use crate::{utils, Error, Result};
 use hidapi::HidApi;
@@ -32,6 +33,73 @@ pub type Column = u8;
 pub struct MatrixInfo {
     pub rows: u8,
     pub cols: u8,
+}
+
+/// Represents the hardware feature capabilities probed from a QMK/VIA keyboard.
+#[cfg_attr(feature = "python", pyclass(get_all, set_all, from_py_object))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct QmkFeatures {
+    pub has_backlight: bool,
+    pub has_rgblight: bool,
+    pub has_rgb_matrix: bool,
+    pub has_audio: bool,
+}
+
+#[cfg_attr(feature = "python", pymethods)]
+impl QmkFeatures {
+    #[cfg(feature = "python")]
+    #[new]
+    #[pyo3(signature = (has_backlight=false, has_rgblight=false, has_rgb_matrix=false, has_audio=false))]
+    pub fn py_new(
+        has_backlight: bool,
+        has_rgblight: bool,
+        has_rgb_matrix: bool,
+        has_audio: bool,
+    ) -> Self {
+        Self {
+            has_backlight,
+            has_rgblight,
+            has_rgb_matrix,
+            has_audio,
+        }
+    }
+
+    /// Checks if a 16-bit QMK keycode is supported by the probed features.
+    pub fn is_keycode_supported(&self, code: u16) -> bool {
+        match code {
+            0x7800..=0x7806 => self.has_backlight,
+            0x7820..=0x7834 => self.has_rgblight,
+            0x7810..=0x7818 | 0x7840..=0x784C => self.has_rgb_matrix,
+            0x7100..=0x718F | 0x7200..=0x7208 | 0x7480..=0x7495 => self.has_audio,
+            _ => true,
+        }
+    }
+
+    /// Checks if a keycode category is supported by the probed features.
+    pub fn is_category_supported(&self, category: KeycodeCategory) -> bool {
+        match category {
+            KeycodeCategory::Backlight => self.has_backlight,
+            KeycodeCategory::Rgblight => self.has_rgblight,
+            KeycodeCategory::RgbMatrix => self.has_rgb_matrix,
+            KeycodeCategory::Audio => self.has_audio,
+            _ => true,
+        }
+    }
+
+    #[cfg(feature = "python")]
+    fn __repr__(&self) -> String {
+        format!(
+            "QmkFeatures(has_backlight={}, has_rgblight={}, has_rgb_matrix={}, has_audio={})",
+            self.has_backlight, self.has_rgblight, self.has_rgb_matrix, self.has_audio
+        )
+    }
+}
+
+impl QmkFeatures {
+    /// Probes a `KeyboardApi` instance for supported features.
+    pub fn probe(api: &KeyboardApi) -> Self {
+        api.probe_features()
+    }
 }
 
 #[cfg_attr(feature = "python", pyclass(from_py_object))]
@@ -1084,5 +1152,15 @@ impl KeyboardApi {
         let bytes = vec![];
         self.hid_command(ViaCommandId::BootloaderJump, bytes)
             .map(|_| ())
+    }
+
+    /// Probes the connected keyboard for supported hardware features (backlight, RGB underglow, RGB matrix, audio).
+    pub fn probe_features(&self) -> QmkFeatures {
+        QmkFeatures {
+            has_backlight: self.get_backlight_brightness().is_ok(),
+            has_rgblight: self.get_rgblight_brightness().is_ok(),
+            has_rgb_matrix: self.get_rgb_matrix_brightness().is_ok(),
+            has_audio: self.get_audio_enabled().is_ok(),
+        }
     }
 }
