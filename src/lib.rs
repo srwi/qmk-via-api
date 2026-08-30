@@ -14,7 +14,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
 pub use error::*;
-pub use keycodes::Keycode;
+pub use keycodes::{Keycode, KeycodeCategory};
 pub use quantum::{
     encode_layer_mod, encode_layer_tap, encode_mod_combo, encode_mod_tap, encode_one_shot_mod,
     ranges, QmkKeycode, QmkLayerOp, QmkModMask,
@@ -45,6 +45,7 @@ fn qmk_via_api(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<api::MatrixInfo>()?;
     m.add_class::<scan::KeyboardDeviceInfo>()?;
     m.add_class::<keycodes::Keycode>()?;
+    m.add_class::<keycodes::KeycodeCategory>()?;
     m.add_class::<quantum::QmkModMask>()?;
     m.add_class::<quantum::QmkLayerOp>()?;
     m.add_class::<quantum::QmkKeycode>()?;

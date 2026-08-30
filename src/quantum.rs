@@ -1,4 +1,4 @@
-use crate::keycodes::Keycode;
+use crate::keycodes::{Keycode, KeycodeCategory};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -216,30 +216,15 @@ pub enum QmkKeycode {
     /// A recognized named keycode (basic keycode or fixed function).
     Keycode(Keycode),
     /// Modifier combo: `(mods << 8) | keycode` (`0x0100..0x2000`).
-    ModCombo {
-        mods: QmkModMask,
-        keycode: u8,
-    },
+    ModCombo { mods: QmkModMask, keycode: u8 },
     /// Mod-Tap keycode: `0x2000 + (mods << 8) + keycode` (`0x2000..0x4000`).
-    ModTap {
-        mods: QmkModMask,
-        keycode: u8,
-    },
+    ModTap { mods: QmkModMask, keycode: u8 },
     /// Layer-Tap keycode: `0x4000 + (layer << 8) + keycode` (`0x4000..0x5000`).
-    LayerTap {
-        layer: u8,
-        keycode: u8,
-    },
+    LayerTap { layer: u8, keycode: u8 },
     /// Layer-Mod keycode: `0x5000 + (layer << 5) + mods` (`0x5000..0x5200`).
-    LayerMod {
-        layer: u8,
-        mods: QmkModMask,
-    },
+    LayerMod { layer: u8, mods: QmkModMask },
     /// Layer switch operations (`0x5200..0x52E0` excluding `0x52A0..0x52C0`).
-    LayerOp {
-        op: QmkLayerOp,
-        layer: u8,
-    },
+    LayerOp { op: QmkLayerOp, layer: u8 },
     /// One-shot modifier (`0x52A0..0x52C0`).
     OneShotMod(QmkModMask),
     /// Tap dance (`0x5700..0x5800`).
@@ -387,9 +372,7 @@ impl QmkKeycode {
     pub fn to_u16(&self) -> u16 {
         match self {
             Self::Keycode(kc) => *kc as u16,
-            Self::ModCombo { mods, keycode } => {
-                ((mods.bits() as u16) << 8) | (*keycode as u16)
-            }
+            Self::ModCombo { mods, keycode } => ((mods.bits() as u16) << 8) | (*keycode as u16),
             Self::ModTap { mods, keycode } => {
                 ranges::QK_MOD_TAP.start + ((mods.bits() as u16) << 8) + (*keycode as u16)
             }
@@ -443,6 +426,19 @@ impl QmkKeycode {
                 } else {
                     None
                 }
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the category of this keycode, if applicable.
+    pub fn category(&self) -> Option<KeycodeCategory> {
+        match self {
+            Self::Keycode(kc) => Some(kc.category()),
+            Self::ModCombo { .. } | Self::ModTap { .. } => Some(KeycodeCategory::Basic),
+            Self::TapDance(_) => Some(KeycodeCategory::Special),
+            Self::Macro(_) | Self::CustomKb(_) | Self::CustomUser(_) => {
+                Some(KeycodeCategory::Custom)
             }
             _ => None,
         }
@@ -532,13 +528,7 @@ mod tests {
         let mods = QmkModMask::from_bits(QmkModMask::LSFT | QmkModMask::LCTL);
         let code = encode_layer_mod(2, mods).unwrap();
         let decoded = QmkKeycode::from_u16(code);
-        assert_eq!(
-            decoded,
-            QmkKeycode::LayerMod {
-                layer: 2,
-                mods
-            }
-        );
+        assert_eq!(decoded, QmkKeycode::LayerMod { layer: 2, mods });
         assert_eq!(decoded.to_u16(), code);
     }
 
