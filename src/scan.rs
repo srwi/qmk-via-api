@@ -1,9 +1,12 @@
+#[cfg(feature = "hidapi")]
 use crate::{Error, Result};
+#[cfg(feature = "hidapi")]
 use hidapi::HidApi;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "hidapi")]
 const VIA_USAGE_PAGE: u16 = 0xff60;
 
 /// Information about a connected VIA-compatible keyboard.
@@ -25,6 +28,7 @@ pub struct KeyboardDeviceInfo {
 }
 
 /// Scan for connected VIA keyboards.
+#[cfg(feature = "hidapi")]
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
     let api = HidApi::new()?;
@@ -43,6 +47,7 @@ pub fn scan_keyboards() -> Result<Vec<KeyboardDeviceInfo>> {
         .collect())
 }
 
+#[cfg(feature = "hidapi")]
 fn try_open_device(api: &HidApi, info: &KeyboardDeviceInfo) -> Result<()> {
     let device = api
         .device_list()
@@ -65,6 +70,7 @@ fn try_open_device(api: &HidApi, info: &KeyboardDeviceInfo) -> Result<()> {
 /// On linux, this checks if the HID device list is empty and optionally tries to open a specific device to verify permissions.
 /// On windows and macOS, it simply checks if the HID API can be initialized and optionally tries to open a specific device.
 /// On unsupported platforms, it returns an error indicating that the feature is not implemented.
+#[cfg(feature = "hidapi")]
 #[cfg_attr(feature = "python", pyfunction)]
 pub fn check_hid_permissions(filter: Option<KeyboardDeviceInfo>) -> Result<()> {
     #[cfg(target_os = "linux")]

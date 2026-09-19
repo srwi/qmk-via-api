@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+#[cfg(feature = "hidapi")]
 use hidapi::HidError;
 
 use crate::api_commands::ViaCommandId;
@@ -79,6 +80,7 @@ impl std::fmt::Display for Error {
     }
 }
 
+#[cfg(feature = "hidapi")]
 impl From<HidError> for Error {
     fn from(value: HidError) -> Self {
         Error::Hid(value.to_string())

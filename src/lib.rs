@@ -13,7 +13,7 @@ use pyo3::exceptions::PyException;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-pub use api::{KeyboardApi, MatrixInfo, QmkFeatures};
+pub use api::{KeyboardApi, MatrixInfo, QmkFeatures, ViaTransport};
 pub use error::*;
 pub use keycodes::{Keycode, KeycodeCategory};
 pub use quantum::{
