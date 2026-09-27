@@ -19,6 +19,7 @@ pub mod ranges {
     pub const QK_ONE_SHOT_LAYER: Range<u16> = 0x5280..0x52A0;
     pub const QK_ONE_SHOT_MOD: Range<u16> = 0x52A0..0x52C0;
     pub const QK_LAYER_TAP_TOGGLE: Range<u16> = 0x52C0..0x52E0;
+    pub const QK_PERSISTENT_DEF_LAYER: Range<u16> = 0x52E0..0x5300;
     pub const QK_TAP_DANCE: Range<u16> = 0x5700..0x5800;
     pub const QK_MACRO: Range<u16> = 0x7700..0x7780;
     pub const QK_KB: Range<u16> = 0x7E00..0x7E40;
@@ -110,16 +111,18 @@ pub enum QmkLayerOp {
     OneShot,
     TapToggle,
     Default,
+    PersistentDefault,
 }
 
 impl QmkLayerOp {
-    pub const ALL: [QmkLayerOp; 6] = [
+    pub const ALL: [QmkLayerOp; 7] = [
         QmkLayerOp::Momentary,
         QmkLayerOp::Toggle,
         QmkLayerOp::To,
         QmkLayerOp::OneShot,
         QmkLayerOp::TapToggle,
         QmkLayerOp::Default,
+        QmkLayerOp::PersistentDefault,
     ];
 
     pub const fn range(&self) -> std::ops::Range<u16> {
@@ -127,6 +130,7 @@ impl QmkLayerOp {
             Self::To => ranges::QK_TO,
             Self::Momentary => ranges::QK_MOMENTARY,
             Self::Default => ranges::QK_DEF_LAYER,
+            Self::PersistentDefault => ranges::QK_PERSISTENT_DEF_LAYER,
             Self::Toggle => ranges::QK_TOGGLE_LAYER,
             Self::OneShot => ranges::QK_ONE_SHOT_LAYER,
             Self::TapToggle => ranges::QK_LAYER_TAP_TOGGLE,
@@ -144,6 +148,7 @@ impl QmkLayerOp {
             Self::OneShot => "OSL",
             Self::TapToggle => "TT",
             Self::Default => "DF",
+            Self::PersistentDefault => "PDF",
         }
     }
 
@@ -155,6 +160,7 @@ impl QmkLayerOp {
             Self::To => ranges::QK_TO.start,
             Self::Momentary => ranges::QK_MOMENTARY.start,
             Self::Default => ranges::QK_DEF_LAYER.start,
+            Self::PersistentDefault => ranges::QK_PERSISTENT_DEF_LAYER.start,
             Self::Toggle => ranges::QK_TOGGLE_LAYER.start,
             Self::OneShot => ranges::QK_ONE_SHOT_LAYER.start,
             Self::TapToggle => ranges::QK_LAYER_TAP_TOGGLE.start,
@@ -223,7 +229,7 @@ pub enum QmkKeycode {
     LayerTap { layer: u8, keycode: u8 },
     /// Layer-Mod keycode: `0x5000 + (layer << 5) + mods` (`0x5000..0x5200`).
     LayerMod { layer: u8, mods: QmkModMask },
-    /// Layer switch operations (`0x5200..0x52E0` excluding `0x52A0..0x52C0`).
+    /// Layer switch operations (`0x5200..0x5300` excluding `0x52A0..0x52C0`).
     LayerOp { op: QmkLayerOp, layer: u8 },
     /// One-shot modifier (`0x52A0..0x52C0`).
     OneShotMod(QmkModMask),
@@ -308,6 +314,12 @@ impl QmkKeycode {
             return Self::LayerOp {
                 op: QmkLayerOp::TapToggle,
                 layer: (code - QK_LAYER_TAP_TOGGLE.start) as u8,
+            };
+        }
+        if QK_PERSISTENT_DEF_LAYER.contains(&code) {
+            return Self::LayerOp {
+                op: QmkLayerOp::PersistentDefault,
+                layer: (code - QK_PERSISTENT_DEF_LAYER.start) as u8,
             };
         }
 
