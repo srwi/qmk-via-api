@@ -204,6 +204,7 @@ fn hid_command_on_transport(
 pub struct KeyboardApi {
     transport: std::sync::Mutex<Box<dyn ViaTransport>>,
     protocol_version: u16,
+    rgb_matrix_max_brightness: u8,
     timeout_ms: Option<i32>,
 }
 
@@ -227,6 +228,8 @@ impl KeyboardApi {
 }
 
 impl KeyboardApi {
+    /// Creates an API over a custom transport without applying device-specific workarounds.
+    /// Use [`Self::from_transport_with_identity`] when the USB identity is known.
     pub fn from_transport(
         mut transport: Box<dyn ViaTransport>,
         timeout_ms: Option<i32>,
@@ -236,8 +239,29 @@ impl KeyboardApi {
         Ok(KeyboardApi {
             transport: std::sync::Mutex::new(transport),
             protocol_version,
+            rgb_matrix_max_brightness: 255,
             timeout_ms,
         })
+    }
+
+    /// Creates an API over a custom transport with the connected device's USB identity.
+    /// Applies the same device-specific workarounds as the USB constructors, without
+    /// requiring the `hidapi` feature.
+    pub fn from_transport_with_identity(
+        transport: Box<dyn ViaTransport>,
+        vid: u16,
+        pid: u16,
+        usage_page: u16,
+        timeout_ms: Option<i32>,
+    ) -> Result<KeyboardApi> {
+        let mut keyboard = Self::from_transport(transport, timeout_ms)?;
+        keyboard.rgb_matrix_max_brightness = crate::device_quirks::rgb_matrix_max_brightness(
+            vid,
+            pid,
+            usage_page,
+            keyboard.protocol_version,
+        );
+        Ok(keyboard)
     }
 
     #[cfg(feature = "hidapi")]
@@ -263,7 +287,7 @@ impl KeyboardApi {
             })?
             .open_device(&api)?;
 
-        Self::from_transport(Box::new(device), timeout_ms)
+        Self::from_transport_with_identity(Box::new(device), vid, pid, usage_page, timeout_ms)
     }
 
     #[cfg(feature = "hidapi")]
@@ -810,7 +834,11 @@ impl KeyboardApi {
         .map(|_| ())
     }
 
-    /// Gets the RGB matrix brightness.
+    /// Gets the RGB matrix brightness in the range 0..=255.
+    ///
+    /// Known nonstandard device ranges are scaled to this range. Rounding to
+    /// native levels means a read may differ from the value last set.
+    /// Identity-free transports created with `from_transport` use raw values.
     pub fn get_rgb_matrix_brightness(&self) -> Result<u8> {
         if self.protocol_version < PROTOCOL_V3 {
             return Err(Error::UnsupportedFeature("RGB matrix"));
@@ -822,10 +850,20 @@ impl KeyboardApi {
                 ViaQmkRgbMatrixValue::IdQmkRgbMatrixBrightness as u8,
             ],
         )
-        .map(|val| val[3])
+        .and_then(|val| {
+            let maximum = self.rgb_matrix_max_brightness;
+            if val[3] > maximum {
+                return Err(Error::BadCommandResponse(ViaCommandId::CustomMenuGetValue));
+            }
+            Ok(((u16::from(val[3]) * 255 + u16::from(maximum) / 2) / u16::from(maximum)) as u8)
+        })
     }
 
-    /// Sets the RGB matrix brightness.
+    /// Sets the RGB matrix brightness in the range 0..=255.
+    ///
+    /// Known nonstandard device ranges are scaled to the nearest native level.
+    /// Use `hid_command` for raw device values. Identity-free transports
+    /// created with `from_transport` use raw values.
     pub fn set_rgb_matrix_brightness(&self, brightness: u8) -> Result<()> {
         if self.protocol_version < PROTOCOL_V3 {
             return Err(Error::UnsupportedFeature("RGB matrix"));
@@ -835,7 +873,8 @@ impl KeyboardApi {
             vec![
                 ViaChannelId::IdQmkRgbMatrixChannel as u8,
                 ViaQmkRgbMatrixValue::IdQmkRgbMatrixBrightness as u8,
-                brightness,
+                ((u16::from(brightness) * u16::from(self.rgb_matrix_max_brightness) + 127) / 255)
+                    as u8,
             ],
         )
         .map(|_| ())
