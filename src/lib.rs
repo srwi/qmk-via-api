@@ -1,6 +1,5 @@
 pub mod api;
 pub mod api_commands;
-mod device_quirks;
 pub mod error;
 pub mod keycodes;
 pub mod quantum;
