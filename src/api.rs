@@ -811,6 +811,10 @@ impl KeyboardApi {
     }
 
     /// Gets the RGB matrix brightness.
+    ///
+    /// Returns the firmware's native value without normalization.
+    /// Non-standard firmware may use a range other than `0..=255`,
+    /// such as `0..=9`.
     pub fn get_rgb_matrix_brightness(&self) -> Result<u8> {
         if self.protocol_version < PROTOCOL_V3 {
             return Err(Error::UnsupportedFeature("RGB matrix"));
@@ -826,6 +830,10 @@ impl KeyboardApi {
     }
 
     /// Sets the RGB matrix brightness.
+    ///
+    /// Passes the value directly to the firmware without normalization.
+    /// Non-standard firmware may use a range other than `0..=255`,
+    /// such as `0..=9`.
     pub fn set_rgb_matrix_brightness(&self, brightness: u8) -> Result<()> {
         if self.protocol_version < PROTOCOL_V3 {
             return Err(Error::UnsupportedFeature("RGB matrix"));
